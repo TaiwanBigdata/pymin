@@ -1,0 +1,130 @@
+[PyMin]
+title = "PyMin"
+content = """
+### ${project.name} (${project.version})
+
+A command-line interface tool for checking PyPI package name availability with rich output formatting and validation rules.
+"""
+
+[Features]
+content = """
+## Core Features
+
+1. Package Name Validation
+   - Real-time PyPI availability check
+   - PEP 503 naming convention validation
+   - Standardized name formatting
+   - Typosquatting detection
+
+2. Rich User Interface
+   - Color-coded status indicators
+   - Interactive progress display
+   - Formatted results presentation
+   - Visual validation markers
+
+3. Developer Experience
+   - Intuitive command structure
+   - Comprehensive error messages
+   - Real-time feedback
+   - Multiple command aliases
+"""
+
+[Installation]
+content = """
+## Quick Start
+
+Install via pipx:
+```bash
+$ pipx install ${project.name}
+```
+
+### System Requirements
+| Component | Requirement                |
+|-----------|----------------------------|
+| Python    | ${project.requires-python} |
+| OS        | Platform independent       |
+"""
+
+[Usage]
+content = """
+## Command Interface
+
+The CLI provides two command interfaces:
+
+| Command | Description         |
+|---------|---------------------|
+| pymin   | Main command        |
+| pm      | Short alias         |
+
+### Basic Usage
+```bash
+❯ pymin
+🔍 PyPI Package Name Checker
+
+# or using alias
+❯ pm
+🔍 PyPI Package Name Checker
+```
+
+### Available Commands
+| Command | Description                       |
+|---------|---------------------------------- |
+| check   | Validate package name availability|
+| search  | Find similar package names        |
+
+### Command Examples
+
+#### Check Package Name
+```bash
+$ pymin check my-package-name
+┌─ PyPI Package Name Check Results ─┐
+│ Package Name: my-package-name     │
+│ Normalized Name: my-package-name  │
+│ Valid Format: ✓                   │
+│ Available: ✓                      │
+│ Message: Package name available!  │
+└───────────────────────────────────┘
+```
+
+#### Search Similar Names
+```bash
+# Default similarity (80%)
+$ pm search fastapi
+
+# Custom similarity threshold
+$ pm search fastapi --threshold 0.85
+```
+
+### Command Options
+| Command | Option      | Description                        | Type  | Default |
+|---------|-------------|------------------------------------| ------|---------|
+| check   | name        | Target package name to validate    | str   | -       |
+| search  | name        | Package name to search for         | str   | -       |
+| search  | --threshold | Similarity threshold (0.0-1.0)     | float | 0.8     |
+"""
+
+[License]
+content = "This project is licensed under the ${project.license} License."
+
+[directory]
+title = "Project Structure"
+enable = true
+exclude_patterns = [
+   ".cursorrules",
+   ".env*",
+   "**/.DS_Store",
+   ".git/",
+   ".gitignore",
+   "env/",
+   "**/__pycache__/",
+   "jupyterlab",
+   "secrets",
+   "build",
+   "dist",
+]
+show_files = true
+show_comments = true
+
+[env]
+enable = false
+env_file = ".env"

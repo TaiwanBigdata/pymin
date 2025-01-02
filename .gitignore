@@ -1,0 +1,23 @@
+# environments
+.env
+.env.*
+__pycache__
+/dist/
+/build/
+/env/
+/venv/
+/app/test*.py
+/backups/
+/caches/
+/secrets/
+/models/
+
+# jupyter
+.ipython
+.ipynb_checkpoints
+.jupyter
+.local
+/jupyterlab/
+
+# ai
+.cursorrules
