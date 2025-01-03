@@ -175,24 +175,26 @@ class PackageNameChecker:
         main_message = result["message"]
         if "\n\nWarning:" in main_message:
             main_message, _ = main_message.split("\n\nWarning:", 1)
-            text.append(f"Message: {main_message}", style=status_color)
-            text.append("\n\nWarning:\n", style="yellow bold")
+            text.append(
+                f"Message: {main_message}", style=f"{status_color} bold"
+            )
+            text.append("\n\nWarning:\n", style="yellow")
 
             # Use security_issues to generate warning messages
             for pkg, score in result["security_issues"][:5]:
                 pkg_url = f"https://pypi.org/project/{pkg}"
                 text.append(" - ", style="yellow")
-                pkg_text = Text(
-                    pkg, style="yellow" if score < 0.9 else "red bold"
-                )
+                pkg_text = Text(pkg, style="yellow")
                 pkg_text.stylize(f"link {pkg_url}")
                 text.append(pkg_text)
                 text.append(
                     f" (similarity: {score:.2%})\n",
-                    style="yellow" if score < 0.9 else "red bold",
+                    style="yellow",
                 )
         else:
-            text.append(f"Message: {main_message}", style=status_color)
+            text.append(
+                f"Message: {main_message}", style=f"{status_color} bold"
+            )
 
         # Add security issues in yellow (This part can be removed, as it's already handled above)
         if (
@@ -201,21 +203,23 @@ class PackageNameChecker:
         ):
             text.append(
                 "\n\nWarning:\n",
-                style="yellow bold",
+                style="yellow",
             )
             for pkg, score in result["security_issues"][:5]:
                 pkg_url = f"https://pypi.org/project/{pkg}"
                 text.append(" - ", style="yellow")
-                pkg_text = Text(
-                    pkg, style="yellow" if score < 0.9 else "red bold"
-                )
+                pkg_text = Text(pkg, style="yellow")
                 pkg_text.stylize(f"link {pkg_url}")
                 text.append(pkg_text)
                 text.append(
                     f" (similarity: {score:.2%})\n",
-                    style="yellow" if score < 0.9 else "red bold",
+                    style="yellow",
                 )
 
         console.print(
-            Panel(text, title="PyPI Package Name Check Results", width=80)
+            Panel.fit(
+                text,
+                title="PyPI Package Name Check Results",
+                title_align="left",
+            )
         )
