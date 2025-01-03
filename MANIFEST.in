@@ -1,0 +1,3 @@
+include src/pymin/shell/*.sh
+recursive-include src/pymin/shell *
+global-exclude *.py[cod] __pycache__ *.so *.dylib 

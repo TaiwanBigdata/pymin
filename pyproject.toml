@@ -1,10 +1,14 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "pymin"
-version = "0.0.0"
+version = "0.0.1"
 description = "A CLI tool to check PyPI package name availability"
 readme = "README.md"
 requires-python = ">=3.8"
-license = "MIT"
+license = { text = "MIT" }
 authors = [{ name = "Albert Liu", email = "dreamerhyde@gmail.com" }]
 keywords = ["pypi", "package-name", "cli", "validation"]
 classifiers = [
@@ -28,6 +32,7 @@ dependencies = [
     "requests>=2.25.0",
     "packaging>=21.0",
     "pandas>=2.0.0",
+    "setuptools>=61.0.0",
 ]
 
 [project.optional-dependencies]
@@ -44,15 +49,19 @@ Homepage = "https://github.com/TaiwanBigdata/pymin"
 Repository = "https://github.com/TaiwanBigdata/pymin.git"
 
 [project.scripts]
-pymin = "pypi_toolkit.cli:cli"
-pm = "pypi_toolkit.cli:cli"
+pymin = "pymin.cli:cli"
+pm = "pymin.cli:cli"
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+[tool.setuptools]
+package-dir = { "" = "src" }
+packages = ["pymin"]
+include-package-data = true
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/pypi_toolkit"]
+[tool.setuptools.package-data]
+"pymin" = ["shell/*.sh"]
+
+[tool.setuptools.data-files]
+"pymin/shell" = ["src/pymin/shell/*.sh"]
 
 [tool.black]
 line-length = 80
