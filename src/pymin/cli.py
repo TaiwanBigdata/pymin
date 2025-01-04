@@ -16,6 +16,7 @@ from pathlib import Path
 import sys
 from .package import PackageManager
 from typing import Optional
+from .utils import get_current_shell
 
 # Force color output
 console = Console(force_terminal=True, color_system="auto")
@@ -41,13 +42,6 @@ def create_status_table(title: str, rows: list[tuple[str, str, str]]) -> Table:
         table.add_row(*row)
 
     return table
-
-
-def get_current_shell():
-    """Get the current shell executable path"""
-    shell = os.environ.get("SHELL", "/bin/sh")
-    shell_name = Path(shell).name
-    return shell, shell_name
 
 
 def get_environment_display_name(venv_path: Path) -> str:

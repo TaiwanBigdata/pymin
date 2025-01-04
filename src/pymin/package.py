@@ -12,6 +12,7 @@ import sys
 import time
 import importlib
 from rich.style import Style
+from .utils import get_current_shell
 
 console = Console()
 
@@ -505,6 +506,50 @@ class PackageManager:
         auto_fix: bool = False,
     ):
         """List packages in requirements.txt and/or all installed packages"""
+        # Check virtual environment status
+        venv_active = bool(os.environ.get("VIRTUAL_ENV"))
+        current_venv = Path("env")
+        current_venv_exists = current_venv.exists() and current_venv.is_dir()
+
+        if not venv_active:
+            console.print(
+                "\n[red bold]⚠ Warning: No active virtual environment![/red bold]"
+            )
+            if current_venv_exists:
+                console.print(
+                    "[yellow]A virtual environment exists but is not activated.[/yellow]"
+                )
+                # 建構原本的指令參數
+                cmd_args = ["pm", "list"]
+                if show_all:
+                    cmd_args.append("-a")
+                if show_deps:
+                    cmd_args.append("-t")
+                if fix:
+                    cmd_args.append("--fix")
+                if auto_fix:
+                    cmd_args.append("-f")
+                cmd = " ".join(cmd_args)
+
+                if Confirm.ask(
+                    f"\n[yellow]Do you want to activate the environment and run '[cyan]{cmd}[/cyan]'?[/yellow]"
+                ):
+                    shell, shell_name = get_current_shell()
+                    activate_script = current_venv / "bin" / "activate"
+                    os.execl(
+                        shell,
+                        shell_name,
+                        "-c",
+                        f"source {activate_script} && {cmd} && exec {shell_name}",
+                    )
+                    return
+            else:
+                console.print(
+                    "[yellow]No virtual environment found in current directory.[/yellow]"
+                )
+                console.print("[yellow]Run: pm venv[/yellow]")
+                return
+
         if fix:
             return self.fix_packages(auto_fix)
 
