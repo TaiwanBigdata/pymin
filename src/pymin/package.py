@@ -381,12 +381,63 @@ class PackageManager:
 
         return main_packages
 
+    def _get_original_package_name(self, name: str) -> str:
+        """Get original package name from pip list"""
+        try:
+            result = subprocess.run(
+                ["pip", "list", "--format=json"],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                import json
+
+                for pkg in json.loads(result.stdout):
+                    if pkg["name"].lower() == name.lower():
+                        return pkg["name"]
+        except Exception:
+            pass
+        return name
+
+    def _normalize_package_name(self, name: str) -> str:
+        """Normalize package name for comparison (convert to lowercase and replace hyphens with underscores)"""
+        return name.lower().replace("-", "_")
+
+    def _get_canonical_package_name(self, name: str) -> str:
+        """Get the canonical package name from pip list"""
+        normalized_name = self._normalize_package_name(name)
+        try:
+            if self._installed_packages_cache is None:
+                result = subprocess.run(
+                    ["pip", "list", "--format=json"],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode == 0:
+                    import json
+
+                    self._installed_packages_cache = {
+                        pkg["name"]: pkg["version"]
+                        for pkg in json.loads(result.stdout)
+                    }
+
+            # Find the package name with correct casing and format
+            for pkg_name in self._installed_packages_cache:
+                if self._normalize_package_name(pkg_name) == normalized_name:
+                    return pkg_name
+        except Exception:
+            pass
+        return name
+
     def _build_dependency_tree(self, package: str, seen=None) -> dict:
         """Build a dependency tree for a package"""
         if seen is None:
             seen = set()
 
-        if package in seen:
+        normalized_package = self._normalize_package_name(package)
+        if normalized_package in {
+            self._normalize_package_name(p) for p in seen
+        }:
             return {}  # Prevent circular dependencies
 
         seen.add(package)
@@ -411,9 +462,18 @@ class PackageManager:
                             if dep.strip()
                         ]
                         for dep in deps:
-                            if dep not in seen:
-                                tree[dep] = self._build_dependency_tree(
-                                    dep, seen
+                            normalized_dep = self._normalize_package_name(dep)
+                            if normalized_dep not in {
+                                self._normalize_package_name(p) for p in seen
+                            }:
+                                # Get canonical package name
+                                canonical_name = (
+                                    self._get_canonical_package_name(dep)
+                                )
+                                tree[canonical_name] = (
+                                    self._build_dependency_tree(
+                                        canonical_name, seen
+                                    )
                                 )
                         break
         except Exception:
@@ -451,6 +511,16 @@ class PackageManager:
         req_packages = self._parse_requirements()
         installed_packages = self._get_all_installed_packages()
 
+        # Convert package names to canonical form
+        req_packages = {
+            self._get_canonical_package_name(name): version
+            for name, version in req_packages.items()
+        }
+        installed_packages = {
+            self._get_canonical_package_name(name): version
+            for name, version in installed_packages.items()
+        }
+
         # Get main packages
         if show_deps:
             packages_to_show = self._get_all_main_packages()
@@ -465,6 +535,12 @@ class PackageManager:
             }
         else:
             packages_to_show = self._get_all_main_packages()
+
+        # Convert packages_to_show to canonical form
+        packages_to_show = {
+            self._get_canonical_package_name(name): version
+            for name, version in packages_to_show.items()
+        }
 
         if not packages_to_show:
             console.print("[yellow]No packages found[/yellow]")
@@ -485,89 +561,99 @@ class PackageManager:
             table.add_column("Installed", style="cyan")
             table.add_column("Status", justify="right")
 
-            # Build all trees at once
+            # Build all trees at once with progress bar
             trees = {}
-            for name in sorted(packages_to_show.keys()):
-                if name in installed_packages:
-                    trees[name] = self._build_dependency_tree(name)
-                elif (
-                    name in req_packages
-                ):  # Add uninstalled but required packages
-                    trees[name] = {}
-
-            # Display trees
-            for name in sorted(trees.keys()):
-
-                def format_tree(
-                    pkg: str,
-                    tree: dict,
-                    level: int = 0,
-                    last_sibling=True,
-                    prefix="",
-                ) -> None:
-                    # Get package information
-                    pkg_required = req_packages.get(pkg, "")
-                    pkg_installed = installed_packages.get(pkg)
-                    pkg_status = self._get_package_status(
-                        pkg, pkg_required, pkg_installed
+            package_list = sorted(packages_to_show.keys())
+            with console.status(
+                "[yellow]Building dependency tree...[/yellow]",
+                spinner="dots",
+            ) as status:
+                # Build trees
+                for i, name in enumerate(package_list):
+                    status.update(
+                        f"[yellow]Building dependency tree... ({i + 1}/{len(package_list)})[/yellow]"
                     )
+                    if name in installed_packages:
+                        trees[name] = self._build_dependency_tree(name)
+                    elif (
+                        name in req_packages
+                    ):  # Add uninstalled but required packages
+                        trees[name] = {}
 
-                    # Create tree branches
-                    if level > 0:
-                        branch = "└── " if last_sibling else "├── "
-                        display_name = f"{prefix}{branch}{pkg}"
-                        if tree.get("circular"):
-                            display_name += " [dim](circular)[/dim]"
-                    else:
-                        display_name = pkg
+                # Format trees with progress indicator
+                status.update("[yellow]Formatting dependency tree...[/yellow]")
+                for name in sorted(trees.keys()):
 
-                    # Format display values
-                    required_display = (
-                        pkg_required.lstrip("=")
-                        if pkg_required
-                        else "[yellow]None[/yellow]" if level == 0 else ""
-                    )
+                    def format_tree(
+                        pkg: str,
+                        tree: dict,
+                        level: int = 0,
+                        last_sibling=True,
+                        prefix="",
+                    ) -> None:
+                        # Get package information
+                        pkg_required = req_packages.get(pkg, "")
+                        pkg_installed = installed_packages.get(pkg)
+                        pkg_status = self._get_package_status(
+                            pkg, pkg_required, pkg_installed
+                        )
 
-                    # Dim the display for dependencies
-                    if level > 0:
-                        display_name = f"[dim]{display_name}[/dim]"
-                        if pkg_installed:
-                            pkg_installed = f"[dim]{pkg_installed}[/dim]"
-                        pkg_status = f"[dim]{pkg_status}[/dim]"
+                        # Create tree branches
+                        if level > 0:
+                            branch = "└── " if last_sibling else "├── "
+                            display_name = f"{prefix}{branch}{pkg}"
+                            if tree.get("circular"):
+                                display_name += " [dim](circular)[/dim]"
+                        else:
+                            display_name = pkg
 
-                    # Add row to table
-                    table.add_row(
-                        display_name,
-                        required_display,
-                        pkg_installed or "[yellow]None[/yellow]",
-                        pkg_status,
-                    )
+                        # Format display values
+                        required_display = (
+                            pkg_required.lstrip("=")
+                            if pkg_required
+                            else "[yellow]None[/yellow]" if level == 0 else ""
+                        )
 
-                    # Process dependencies recursively
-                    if not tree.get("circular"):
-                        deps = [
-                            (k, v)
-                            for k, v in sorted(tree.items())
-                            if k != "circular"
-                        ]
-                        for i, (dep, subtree) in enumerate(deps):
-                            new_prefix = prefix + (
-                                "    " if last_sibling else "│   "
-                            )
-                            # Get sub-dependencies if not already in tree
-                            if not subtree and dep in installed_packages:
-                                subtree = self._build_dependency_tree(dep)
-                            format_tree(
-                                dep,
-                                subtree,
-                                level + 1,
-                                i == len(deps) - 1,
-                                new_prefix,
-                            )
+                        # Dim the display for dependencies
+                        if level > 0:
+                            display_name = f"[dim]{display_name}[/dim]"
+                            if pkg_installed:
+                                pkg_installed = f"[dim]{pkg_installed}[/dim]"
+                            pkg_status = f"[dim]{pkg_status}[/dim]"
 
-                format_tree(name, trees[name])
-                if name != sorted(trees.keys())[-1]:
-                    table.add_row("", "", "", "")
+                        # Add row to table
+                        table.add_row(
+                            display_name,
+                            required_display,
+                            pkg_installed or "[yellow]None[/yellow]",
+                            pkg_status,
+                        )
+
+                        # Process dependencies recursively
+                        if not tree.get("circular"):
+                            deps = [
+                                (k, v)
+                                for k, v in sorted(tree.items())
+                                if k != "circular"
+                            ]
+                            for i, (dep, subtree) in enumerate(deps):
+                                new_prefix = prefix + (
+                                    "    " if last_sibling else "│   "
+                                )
+                                # Get sub-dependencies if not already in tree
+                                if not subtree and dep in installed_packages:
+                                    subtree = self._build_dependency_tree(dep)
+                                format_tree(
+                                    dep,
+                                    subtree,
+                                    level + 1,
+                                    i == len(deps) - 1,
+                                    new_prefix,
+                                )
+
+                    format_tree(name, trees[name])
+                    if name != sorted(trees.keys())[-1]:
+                        table.add_row("", "", "", "")
         else:
             table.add_column("Package", style="")
             table.add_column("Required", style="blue")
