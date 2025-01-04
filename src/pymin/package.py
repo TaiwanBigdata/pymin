@@ -19,6 +19,8 @@ class PackageManager:
     def __init__(self, project_root: Path = None):
         self.project_root = project_root or Path.cwd()
         self.requirements_file = self.project_root / "requirements.txt"
+        self._installed_packages_cache = None
+        self._dependencies_cache = {}
 
     def _parse_requirements(self) -> Dict[str, str]:
         """Parse requirements.txt into a dictionary of package names and versions"""
@@ -255,6 +257,9 @@ class PackageManager:
 
             del packages[package]
             self._write_requirements(packages)
+            # Reset caches when removing package
+            self._installed_packages_cache = None
+            self._dependencies_cache = {}
             console.print(f"[green]✓ Removed {package}[/green]")
             return True
         except Exception as e:
@@ -263,6 +268,9 @@ class PackageManager:
 
     def _get_all_installed_packages(self) -> Dict[str, str]:
         """Get all installed packages and their versions"""
+        if self._installed_packages_cache is not None:
+            return self._installed_packages_cache
+
         packages = {}
         try:
             result = subprocess.run(
@@ -275,35 +283,102 @@ class PackageManager:
 
                 for pkg in json.loads(result.stdout):
                     packages[pkg["name"]] = pkg["version"]
-        except Exception:
+        except Exception as e:
             # Fallback to pkg_resources if pip list fails
-            for pkg in pkg_resources.working_set:
-                packages[pkg.key] = pkg.version
+            console.print(
+                f"[yellow]Warning: Falling back to pkg_resources: {e}[/yellow]"
+            )
+            for dist in pkg_resources.working_set:
+                packages[dist.key] = dist.version
+
+        self._installed_packages_cache = packages
         return packages
 
     def _get_package_dependencies(self, package: str) -> Dict[str, list]:
-        """Get package dependencies using pip show"""
+        """Get package dependencies using pkg_resources"""
+        if package in self._dependencies_cache:
+            return self._dependencies_cache[package]
+
+        try:
+            dist = pkg_resources.get_distribution(package)
+            deps = {
+                "requires": [req.project_name for req in dist.requires()],
+                "required_by": [],
+            }
+            self._dependencies_cache[package] = deps
+            return deps
+        except Exception:
+            empty_deps = {"requires": [], "required_by": []}
+            self._dependencies_cache[package] = empty_deps
+            return empty_deps
+
+    def _get_all_main_packages(self) -> Dict[str, str]:
+        """Get all installed main packages (not dependencies) and their versions"""
+        installed = self._get_all_installed_packages()
+        main_packages = {}
+
+        # First, add all packages from requirements.txt
+        req_packages = self._parse_requirements()
+        for pkg in req_packages:
+            main_packages[pkg] = installed.get(pkg, "")
+
+        # Get directly installed packages using pip
         try:
             result = subprocess.run(
-                ["pip", "show", package],
+                ["pip", "list", "--not-required", "--format=json"],
                 capture_output=True,
                 text=True,
             )
             if result.returncode == 0:
-                deps = {"requires": [], "required_by": []}
-                for line in result.stdout.split("\n"):
-                    if line.startswith("Requires: "):
-                        deps["requires"] = [
-                            d.strip() for d in line[9:].split(",") if d.strip()
-                        ]
-                    elif line.startswith("Required-by: "):
-                        deps["required_by"] = [
-                            d.strip() for d in line[12:].split(",") if d.strip()
-                        ]
-                return deps
-            return {"requires": [], "required_by": []}  # Command failed
-        except Exception:
-            return {"requires": [], "required_by": []}
+                import json
+
+                for pkg in json.loads(result.stdout):
+                    name = pkg["name"]
+                    # Skip system packages
+                    if name.lower() in (
+                        "pip",
+                        "setuptools",
+                        "wheel",
+                    ) or name.startswith(("pip-", "setuptools-", "wheel-")):
+                        continue
+                    # Add if not already in main_packages
+                    if name not in main_packages:
+                        main_packages[name] = pkg["version"]
+        except Exception as e:
+            # If pip list fails, try to get non-dependency packages using pkg_resources
+            try:
+                # Get all dependencies
+                all_deps = set()
+                for dist in pkg_resources.working_set:
+                    if not (
+                        dist.key.lower() in ("pip", "setuptools", "wheel")
+                        or dist.key.startswith(
+                            ("pip-", "setuptools-", "wheel-")
+                        )
+                    ):
+                        for req in dist.requires():
+                            all_deps.add(req.project_name)
+
+                # Add packages that are not dependencies
+                for dist in pkg_resources.working_set:
+                    name = dist.key
+                    if (
+                        name not in main_packages
+                        and name not in all_deps
+                        and not (
+                            name.lower() in ("pip", "setuptools", "wheel")
+                            or name.startswith(
+                                ("pip-", "setuptools-", "wheel-")
+                            )
+                        )
+                    ):
+                        main_packages[name] = dist.version
+            except Exception as e2:
+                console.print(
+                    f"[yellow]Warning: Could not get direct dependencies: {e2}[/yellow]"
+                )
+
+        return main_packages
 
     def _build_dependency_tree(self, package: str, seen=None) -> dict:
         """Build a dependency tree for a package"""
@@ -314,45 +389,18 @@ class PackageManager:
             return {}  # Prevent circular dependencies
 
         seen.add(package)
-        deps = self._get_package_dependencies(package)
         tree = {}
-        installed_packages = self._get_all_installed_packages()
 
-        for dep in deps.get("requires", []):
-            if dep and dep.lower() != "none" and dep in installed_packages:
-                tree[dep] = self._build_dependency_tree(dep, seen)
+        try:
+            dist = pkg_resources.get_distribution(package)
+            for req in dist.requires():
+                dep_name = req.project_name
+                if dep_name not in seen:
+                    tree[dep_name] = self._build_dependency_tree(dep_name, seen)
+        except Exception:
+            pass
 
         return tree
-
-    def _get_all_main_packages(self) -> Dict[str, str]:
-        """Get all installed main packages (not dependencies) and their versions"""
-        installed = self._get_all_installed_packages()
-        main_packages = {}
-
-        # First, add all packages from requirements.txt (even if not installed)
-        req_packages = self._parse_requirements()
-        for pkg in req_packages:
-            main_packages[pkg] = installed.get(pkg, "")
-
-        # Then add packages that are not dependencies of any other package
-        for pkg in installed:
-            # Skip system packages
-            if pkg.lower() in ("pip", "setuptools", "wheel") or pkg.startswith(
-                ("pip-", "setuptools-", "wheel-")
-            ):
-                continue
-
-            # Skip if already added from requirements.txt
-            if pkg in main_packages:
-                continue
-
-            deps = self._get_package_dependencies(pkg)
-            if not deps.get("required_by") or all(
-                req.strip() == "none" for req in deps.get("required_by", [])
-            ):
-                main_packages[pkg] = installed[pkg]
-
-        return main_packages
 
     def _get_package_status(
         self, name: str, required_version: str, installed_version: str
@@ -375,31 +423,28 @@ class PackageManager:
         req_packages = self._parse_requirements()
         installed_packages = self._get_all_installed_packages()
 
-        # Remove system packages from installed_packages
-        for pkg in list(installed_packages.keys()):
-            if pkg.lower() in ("pip", "setuptools", "wheel") or pkg.startswith(
-                ("pip-", "setuptools-", "wheel-")
-            ):
-                del installed_packages[pkg]
-
+        # Get main packages
         if show_deps:
-            # For tree view, show only installed main packages
+            packages_to_show = (
+                self._get_all_main_packages()
+            )  # Get all main packages including requirements.txt
+        elif show_all:
             packages_to_show = {
                 name: version
-                for name, version in self._get_all_main_packages().items()
-                if name in installed_packages
+                for name, version in installed_packages.items()
+                if not (
+                    name.lower() in ("pip", "setuptools", "wheel")
+                    or name.startswith(("pip-", "setuptools-", "wheel-"))
+                )
             }
-        elif show_all:
-            # For -a flag, show only installed packages
-            packages_to_show = installed_packages
         else:
-            # For default view, show all main packages and requirements.txt
             packages_to_show = self._get_all_main_packages()
 
         if not packages_to_show:
             console.print("[yellow]No packages found[/yellow]")
             return
 
+        # Create table
         table = Table(
             title="Package Dependencies",
             show_header=True,
@@ -413,89 +458,65 @@ class PackageManager:
             table.add_column("Required", style="blue")
             table.add_column("Installed", style="cyan")
             table.add_column("Status", justify="right")
+
+            # Build all trees at once
+            trees = {}
+            seen = set()
+            for name in sorted(packages_to_show.keys()):
+                trees[name] = (
+                    self._build_dependency_tree(name, seen)
+                    if name in installed_packages
+                    else {}
+                )
+
+            # Display trees
+            for name in sorted(trees.keys()):
+
+                def format_tree(tree: dict, pkg: str, level: int = 0) -> None:
+                    prefix = "│   " * (level - 1) + "├── " if level > 0 else ""
+                    pkg_required = req_packages.get(pkg, "")
+                    pkg_installed = installed_packages.get(pkg)
+                    pkg_status = self._get_package_status(
+                        pkg, pkg_required, pkg_installed
+                    )
+
+                    display_name = f"{prefix}{pkg}" if level > 0 else pkg
+                    required_display = (
+                        pkg_required.lstrip("=")
+                        if pkg_required
+                        else "[yellow]None[/yellow]" if level == 0 else ""
+                    )
+
+                    if level > 0:
+                        display_name = f"[dim]{display_name}[/dim]"
+                        if pkg_installed:
+                            pkg_installed = f"[dim]{pkg_installed}[/dim]"
+                        pkg_status = f"[dim]{pkg_status}[/dim]"
+
+                    table.add_row(
+                        display_name,
+                        required_display,
+                        pkg_installed or "[yellow]None[/yellow]",
+                        pkg_status,
+                    )
+
+                    if pkg in installed_packages:
+                        for dep, subtree in sorted(tree.get(pkg, {}).items()):
+                            if dep in installed_packages:
+                                format_tree(tree, dep, level + 1)
+
+                format_tree(trees, name)
+                if name != sorted(trees.keys())[-1]:
+                    table.add_row("", "", "", "")
         else:
             table.add_column("Package", style="cyan")
             table.add_column("Required", style="blue")
             table.add_column("Installed", style="cyan")
             table.add_column("Status", justify="right")
 
-        def format_tree(tree: dict, level: int = 0) -> list:
-            """Format dependency tree for display"""
-            rows = []
-            prefix = "│   " * (level - 1) + "├── " if level > 0 else ""
-            for pkg, subtree in tree.items():
-                # Only include installed packages in the tree
-                if pkg in installed_packages:
-                    rows.append((pkg, level, prefix))
-                    rows.extend(format_tree(subtree, level + 1))
-            return rows
-
-        if show_deps:
-            # Build and display dependency trees for each root package
-            main_packages = self._get_all_main_packages()
-            for name in sorted(main_packages.keys()):
-                if name not in installed_packages:
-                    continue  # Skip uninstalled packages
-
-                tree = {name: self._build_dependency_tree(name)}
-                formatted_tree = format_tree(tree)
-
-                if (
-                    formatted_tree
-                ):  # Only show trees that have installed packages
-                    for pkg, level, prefix in formatted_tree:
-                        pkg_required = req_packages.get(pkg, "")
-                        pkg_installed = installed_packages.get(pkg)
-                        pkg_status = self._get_package_status(
-                            pkg, pkg_required, pkg_installed
-                        )
-
-                        display_name = f"{prefix}{pkg}" if level > 0 else pkg
-                        # For dependencies (level > 0), only show version info
-                        required_display = (
-                            pkg_required.lstrip("=")
-                            if pkg_required
-                            else "[yellow]None[/yellow]" if level == 0 else ""
-                        )
-                        # Make dependencies dimmed
-                        if level > 0:
-                            display_name = f"[dim]{display_name}[/dim]"
-                            if pkg_installed:
-                                pkg_installed = f"[dim]{pkg_installed}[/dim]"
-                            pkg_status = f"[dim]{pkg_status}[/dim]"
-
-                        table.add_row(
-                            display_name,
-                            required_display,
-                            pkg_installed or "[yellow]None[/yellow]",
-                            pkg_status,
-                        )
-
-                    # Add a blank row between trees if there are more trees to come
-                    if (
-                        name
-                        != sorted(
-                            [
-                                p
-                                for p in main_packages.keys()
-                                if p in installed_packages
-                            ]
-                        )[-1]
-                    ):
-                        table.add_row("", "", "", "")
-        else:
-            # Original flat list display
-            for name, version in sorted(packages_to_show.items()):
+            for name in sorted(packages_to_show.keys()):
                 required_version = req_packages.get(name, "")
                 installed_version = installed_packages.get(name)
-
-                if (
-                    show_all
-                    and not required_version
-                    and name.startswith(("pip-", "pip", "setuptools", "wheel"))
-                ):
-                    continue
-
                 status = self._get_package_status(
                     name, required_version, installed_version
                 )
@@ -505,18 +526,9 @@ class PackageManager:
                     (
                         required_version.lstrip("=")
                         if required_version
-                        else "[yellow]None[/yellow]"
+                        else ("" if show_all else "[yellow]None[/yellow]")
                     ),
                     installed_version or "[yellow]None[/yellow]",
                     status,
                 )
-
-        console.print("\n")
         console.print(table)
-        console.print(
-            "\nStatus: "
-            "[green]✓[/green] Installed and in requirements.txt  "
-            "[red]✗[/red] Not installed (severe)  "
-            "[yellow]≠[/yellow] Version mismatch  "
-            "[blue]△[/blue] Not in requirements.txt\n"
-        )
