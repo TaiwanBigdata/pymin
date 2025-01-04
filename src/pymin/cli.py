@@ -41,6 +41,20 @@ def create_status_table(title: str, rows: list[tuple[str, str, str]]) -> Table:
     return table
 
 
+def get_current_shell():
+    """Get the current shell executable path"""
+    shell = os.environ.get("SHELL", "/bin/sh")
+    shell_name = Path(shell).name
+    return shell, shell_name
+
+
+def get_environment_display_name(venv_path: Path) -> str:
+    """Get a display name for the virtual environment"""
+    if venv_path.name in ["env", "venv"]:
+        return f"({venv_path.name}) "
+    return ""
+
+
 @click.group()
 def cli():
     """[cyan]PyMin[/cyan] CLI tool for PyPI package management
@@ -313,61 +327,71 @@ def info():
 
 
 @cli.command()
-def activate():
-    """Show virtual environment activation command"""
-    if not Path("env").exists():
-        console.print("[red]Error: Virtual environment 'env' not found.[/red]")
+@click.argument("name", default="env")
+def activate(name):
+    """Activate the virtual environment"""
+    venv_path = Path(name)
+    activate_script = venv_path / "bin" / "activate"
+
+    if not venv_path.exists():
         console.print(
-            "[yellow]Tip: Run 'pm init' first to create a project with virtual environment.[/yellow]"
+            f"[red]Virtual environment '{name}' does not exist.[/red]"
         )
         return
 
-    activate_cmd = str(Path("env/bin/activate"))
-    text = Text.assemble(
-        "\n",
-        ("Copy and run this command:\n", "dim"),
-        "\n",
-        (f"source {activate_cmd}", "cyan bold"),
-        "\n",
-        "\n",
-        ("Or use this shortcut:\n", "dim"),
-        ("\n. env/bin/activate", "cyan"),
-        "\n",
-    )
-    panel = Panel.fit(
-        text,
-        title="Virtual Environment Activation",
-        title_align="left",
-        border_style="bright_blue",
-    )
-    console.print("\n")
-    console.print(panel)
-    console.print("\n")
+    if not activate_script.exists():
+        console.print(f"[red]Activation script not found in '{name}'.[/red]")
+        return
+
+    # Get current project name (directory name)
+    project_name = Path.cwd().name
+    venv_display = get_environment_display_name(venv_path)
+
+    current_status = "No active environment"
+    if "VIRTUAL_ENV" in os.environ:
+        current_venv = Path(os.environ["VIRTUAL_ENV"])
+        current_status = f"[cyan]{get_environment_display_name(current_venv)}{Path(current_venv).parent.name}[/cyan]"
+
+    if Confirm.ask(
+        f"[yellow]Switch environment?[/yellow]\n"
+        f"  From: {current_status}\n"
+        f"  To:   [cyan]{venv_display}{project_name}[/cyan]"
+    ):
+        console.print(f"[green]Activating virtual environment: {name}[/green]")
+        shell, shell_name = get_current_shell()
+        os.execl(
+            shell,
+            shell_name,
+            "-c",
+            f"source {activate_script} && exec {shell_name}",
+        )
 
 
 @cli.command()
 def deactivate():
-    """Show virtual environment deactivation command"""
-    if not os.environ.get("VIRTUAL_ENV"):
-        console.print("[red]Error: No active virtual environment found.[/red]")
+    """Deactivate the current virtual environment"""
+    if "VIRTUAL_ENV" not in os.environ:
+        console.print("[yellow]No active virtual environment found.[/yellow]")
         return
 
-    text = Text.assemble(
-        "\n",
-        ("Run this command:\n", "dim"),
-        "\n",
-        ("deactivate", "cyan bold"),
-        "\n",
-    )
-    panel = Panel.fit(
-        text,
-        title="Virtual Environment Deactivation",
-        title_align="left",
-        border_style="bright_blue",
-    )
-    console.print("\n")
-    console.print(panel)
-    console.print("\n")
+    current_venv = Path(os.environ["VIRTUAL_ENV"])
+    project_name = current_venv.parent.name
+    venv_display = get_environment_display_name(current_venv)
+
+    if Confirm.ask(
+        f"[yellow]Deactivate environment?[/yellow]\n"
+        f"  From: [cyan]{venv_display}{project_name}[/cyan]\n"
+        f"  To:   No active environment"
+    ):
+        console.print("[green]Deactivating virtual environment...[/green]")
+        shell, shell_name = get_current_shell()
+        deactivate_script = current_venv / "bin" / "activate"
+        os.execl(
+            shell,
+            shell_name,
+            "-c",
+            f"source {deactivate_script} && deactivate && exec {shell_name}",
+        )
 
 
 if __name__ == "__main__":
