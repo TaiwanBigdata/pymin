@@ -8,7 +8,7 @@ version = "0.0.1"
 description = "A CLI tool to check PyPI package name availability"
 readme = "README.md"
 requires-python = ">=3.8"
-license = "MIT"
+license = { text = "MIT" }
 authors = [{ name = "Albert Liu", email = "dreamerhyde@gmail.com" }]
 keywords = ["pypi", "package-name", "cli", "validation"]
 classifiers = [

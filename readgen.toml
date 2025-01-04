@@ -23,10 +23,10 @@ This duality in naming captures both our design philosophy and the real-world pr
 A CLI tool for PyPI package management, providing package name validation, virtual environment management, and project information display with rich output formatting.
 
 #### Package Name Validation
-![Package Name Check](docs/images/check_package.png)
+![Package Name Check](https://raw.githubusercontent.com/TaiwanBigdata/pymin/main/docs/images/check_package.png)
 
 #### Environment Information
-![Environment Information](docs/images/env_info.png)
+![Environment Information](https://raw.githubusercontent.com/TaiwanBigdata/pymin/main/docs/images/env_info.png)
 """
 
 [Features]
