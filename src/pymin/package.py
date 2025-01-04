@@ -153,9 +153,6 @@ class PackageManager:
             if pre_installed_version:
                 # If version is specified and different from installed
                 if version and version != pre_installed_version:
-                    console.print(
-                        f"[yellow]Updating [cyan]{package}[/cyan] to version [cyan]{version}[/cyan]...[/yellow]"
-                    )
                     cmd = ["pip", "install", f"{package}=={version}"]
                     result = subprocess.run(cmd, capture_output=True, text=True)
 
@@ -168,14 +165,8 @@ class PackageManager:
                     installed_version = version
                 else:
                     installed_version = pre_installed_version
-                    console.print(
-                        f"[green]✓[/green] Package [cyan]{package}=={installed_version}[/cyan] is already installed"
-                    )
             else:
                 # Install new package
-                console.print(
-                    f"[yellow]Installing [cyan]{package}[/cyan]...[/yellow]"
-                )
                 cmd = ["pip", "install"]
                 if version:
                     cmd.append(f"{package}=={version}")
@@ -197,10 +188,6 @@ class PackageManager:
                             f"[red bold]Failed to determine version for [cyan]{package}[/cyan][/red bold]"
                         )
                         return False
-
-                    console.print(
-                        f"[green]✓[/green] Package [cyan]{package}=={installed_version}[/cyan] is already installed"
-                    )
                 else:
                     if result.returncode != 0:
                         console.print(
@@ -214,15 +201,11 @@ class PackageManager:
                             f"[red bold]Package [cyan]{package}[/cyan] was not installed correctly.[/red bold]"
                         )
                         return False
-                    console.print(
-                        f"[green]✓[/green] Added [cyan]{package}=={installed_version}[/cyan]"
-                    )
 
             # Only update requirements.txt if we have a valid version
             if installed_version:
                 packages[package] = f"=={installed_version}"
                 self._write_requirements(packages)
-                console.print("[blue]✓ Updated requirements.txt[/blue]")
                 return True
             return False
 
@@ -526,9 +509,9 @@ class PackageManager:
                 if show_deps:
                     cmd_args.append("-t")
                 if fix:
-                    cmd_args.append("--fix")
-                if auto_fix:
                     cmd_args.append("-f")
+                if auto_fix:
+                    cmd_args.append("-F")
                 cmd = " ".join(cmd_args)
 
                 if Confirm.ask(
@@ -550,7 +533,7 @@ class PackageManager:
                 console.print("[yellow]Run: pm venv[/yellow]")
                 return
 
-        if fix:
+        if fix or auto_fix:
             return self.fix_packages(auto_fix)
 
         req_packages = self._parse_requirements()
@@ -734,6 +717,40 @@ class PackageManager:
                 )
         console.print(table)
 
+        # 顯示統計摘要
+        total_packages = len(packages_to_show)
+        required_count = sum(
+            1 for name in packages_to_show if name in req_packages
+        )
+        installed_count = sum(
+            1 for name in packages_to_show if name in installed_packages
+        )
+        mismatch_count = sum(
+            1
+            for name in packages_to_show
+            if name in req_packages
+            and name in installed_packages
+            and req_packages[name].lstrip("==") != installed_packages[name]
+        )
+
+        console.print("\nSummary:")
+        console.print(f"  • Total Packages: [cyan]{total_packages}[/cyan]")
+        if required_count:
+            console.print(
+                f"  • In requirements.txt: [blue]{required_count}[/blue]"
+            )
+        if installed_count:
+            console.print(f"  • Installed: [green]{installed_count}[/green]")
+        if mismatch_count:
+            console.print(
+                f"  • Version Mismatches: [yellow]{mismatch_count}[/yellow]"
+            )
+
+        if mismatch_count or (required_count != installed_count):
+            console.print(
+                "\n[dim]Tip: Run 'pm list --fix' to resolve package inconsistencies[/dim]"
+            )
+
     def fix_packages(self, auto_fix: bool = False) -> bool:
         """Fix package inconsistencies:
         1. Install missing packages from requirements.txt
@@ -812,10 +829,12 @@ class PackageManager:
                 text.append("≠", style=Style(color="yellow"))
                 text.append(" ")
                 text.append(name, style=Style())
-                text.append(": required==")
-                text.append(req_version)
-                text.append(", installed==")
+                text.append(": ")
                 text.append(inst_version, style=Style(color="red"))
+                text.append(" (installed)")
+                text.append(" → ")
+                text.append(req_version, style=Style(color="green"))
+                text.append(" (required)")
                 console.print(text)
 
         # Show summary of actions
@@ -838,26 +857,33 @@ class PackageManager:
             if not Confirm.ask("\nDo you want to fix these issues?"):
                 return False
 
-        # Fix missing packages
-        for name, version in missing_packages:
-            console.print(f"\n[dim]Installing {name}=={version}...[/dim]")
-            if self.add(name, version):
-                fixed = True
+        with console.status(
+            "[yellow]Fixing package inconsistencies...[/yellow]", spinner="dots"
+        ) as status:
+            # Fix missing packages
+            for name, version in missing_packages:
+                status.update(
+                    f"[yellow]Installing {name}=={version}...[/yellow]"
+                )
+                if self.add(name, version):
+                    fixed = True
 
-        # Fix version mismatches
-        for name, req_version, _ in version_mismatches:
-            console.print(f"\n[dim]Updating {name} to {req_version}...[/dim]")
-            if self.add(name, req_version):
-                fixed = True
+            # Fix version mismatches
+            for name, req_version, _ in version_mismatches:
+                status.update(
+                    f"[yellow]Updating {name} to {req_version}...[/yellow]"
+                )
+                if self.add(name, req_version):
+                    fixed = True
 
-        # Add unlisted packages to requirements.txt
-        if unlisted_packages:
-            packages = self._parse_requirements()
-            for name, version in unlisted_packages:
-                packages[name] = f"=={version}"
-            self._write_requirements(packages)
-            console.print("\n[green]✓ Updated requirements.txt[/green]")
-            fixed = True
+            # Add unlisted packages to requirements.txt
+            if unlisted_packages:
+                status.update("[yellow]Updating requirements.txt...[/yellow]")
+                packages = self._parse_requirements()
+                for name, version in unlisted_packages:
+                    packages[name] = f"=={version}"
+                self._write_requirements(packages)
+                fixed = True
 
         if fixed:
             console.print("\n[green]✓ All issues have been fixed[/green]")

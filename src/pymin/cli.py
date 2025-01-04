@@ -416,9 +416,9 @@ def remove(package: str):
 @cli.command(name="list")
 @click.option("-a", "--all", is_flag=True, help="List all installed packages")
 @click.option("-t", "--tree", is_flag=True, help="Show dependency tree")
-@click.option("--fix", is_flag=True, help="Fix package inconsistencies")
+@click.option("-f", "--fix", is_flag=True, help="Fix package inconsistencies")
 @click.option(
-    "-f",
+    "-F",
     "--auto-fix",
     is_flag=True,
     help="Automatically fix package inconsistencies without confirmation",
