@@ -14,6 +14,8 @@ from rich.layout import Layout
 from rich.style import Style
 from pathlib import Path
 import sys
+from .package import PackageManager
+from typing import Optional
 
 # Force color output
 console = Console(force_terminal=True, color_system="auto")
@@ -67,9 +69,15 @@ def cli():
 
     \b
     Environment:
-      activate    Show virtual environment activation command
-      deactivate  Show virtual environment deactivation command
+      activate    Activate virtual environment
+      deactivate  Deactivate virtual environment
       info        Show environment information
+
+    \b
+    Package Management:
+      add         Add package to requirements.txt
+      remove      Remove package from requirements.txt
+      list        List all packages in requirements.txt
     """
     pass
 
@@ -392,6 +400,42 @@ def deactivate():
             "-c",
             f"source {deactivate_script} && deactivate && exec {shell_name}",
         )
+
+
+@cli.command()
+@click.argument("package")
+@click.option("--version", "-v", help="Specific version to install")
+def add(package: str, version: Optional[str]):
+    """Add a package to requirements.txt and install it"""
+    manager = PackageManager()
+    manager.add(package, version)
+
+
+@cli.command()
+@click.argument("package")
+def remove(package: str):
+    """Remove a package from requirements.txt and uninstall it"""
+    manager = PackageManager()
+    manager.remove(package)
+
+
+@cli.command(name="list")
+@click.option(
+    "--all",
+    "-a",
+    is_flag=True,
+    help="Show all installed packages (like pip list)",
+)
+@click.option(
+    "--tree",
+    "-t",
+    is_flag=True,
+    help="Show dependency tree structure",
+)
+def list_packages(all: bool, tree: bool):
+    """List packages and their status in requirements.txt"""
+    manager = PackageManager()
+    manager.list_packages(show_all=all, show_deps=tree)
 
 
 if __name__ == "__main__":
