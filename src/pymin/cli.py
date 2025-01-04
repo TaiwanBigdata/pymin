@@ -420,22 +420,19 @@ def remove(package: str):
 
 
 @cli.command(name="list")
+@click.option("-a", "--all", is_flag=True, help="List all installed packages")
+@click.option("-t", "--tree", is_flag=True, help="Show dependency tree")
+@click.option("--fix", is_flag=True, help="Fix package inconsistencies")
 @click.option(
-    "--all",
-    "-a",
+    "-f",
+    "--auto-fix",
     is_flag=True,
-    help="Show all installed packages (like pip list)",
+    help="Automatically fix package inconsistencies without confirmation",
 )
-@click.option(
-    "--tree",
-    "-t",
-    is_flag=True,
-    help="Show dependency tree structure",
-)
-def list_packages(all: bool, tree: bool):
-    """List packages and their status in requirements.txt"""
-    manager = PackageManager()
-    manager.list_packages(show_all=all, show_deps=tree)
+def list_packages(all, tree, fix, auto_fix):
+    """List installed packages and their dependencies"""
+    pm = PackageManager()
+    pm.list_packages(show_all=all, show_deps=tree, fix=fix, auto_fix=auto_fix)
 
 
 if __name__ == "__main__":

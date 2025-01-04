@@ -11,6 +11,7 @@ from rich.prompt import Confirm
 import sys
 import time
 import importlib
+from rich.style import Style
 
 console = Console()
 
@@ -392,11 +393,29 @@ class PackageManager:
         tree = {}
 
         try:
-            dist = pkg_resources.get_distribution(package)
-            for req in dist.requires():
-                dep_name = req.project_name
-                if dep_name not in seen:
-                    tree[dep_name] = self._build_dependency_tree(dep_name, seen)
+            # Get dependencies using pip show
+            result = subprocess.run(
+                ["pip", "show", package],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                # Parse dependencies from pip show output
+                for line in result.stdout.split("\n"):
+                    if line.startswith("Requires:"):
+                        deps = [
+                            dep.strip()
+                            for dep in line.replace("Requires:", "")
+                            .strip()
+                            .split(",")
+                            if dep.strip()
+                        ]
+                        for dep in deps:
+                            if dep not in seen:
+                                tree[dep] = self._build_dependency_tree(
+                                    dep, seen
+                                )
+                        break
         except Exception:
             pass
 
@@ -418,16 +437,23 @@ class PackageManager:
             return "[blue]△[/blue]"  # Installed but not in requirements.txt
         return "[red]✗[/red]"  # Not installed
 
-    def list_packages(self, show_all: bool = False, show_deps: bool = False):
+    def list_packages(
+        self,
+        show_all: bool = False,
+        show_deps: bool = False,
+        fix: bool = False,
+        auto_fix: bool = False,
+    ):
         """List packages in requirements.txt and/or all installed packages"""
+        if fix:
+            return self.fix_packages(auto_fix)
+
         req_packages = self._parse_requirements()
         installed_packages = self._get_all_installed_packages()
 
         # Get main packages
         if show_deps:
-            packages_to_show = (
-                self._get_all_main_packages()
-            )  # Get all main packages including requirements.txt
+            packages_to_show = self._get_all_main_packages()
         elif show_all:
             packages_to_show = {
                 name: version
@@ -461,38 +487,55 @@ class PackageManager:
 
             # Build all trees at once
             trees = {}
-            seen = set()
             for name in sorted(packages_to_show.keys()):
-                trees[name] = (
-                    self._build_dependency_tree(name, seen)
-                    if name in installed_packages
-                    else {}
-                )
+                if name in installed_packages:
+                    trees[name] = self._build_dependency_tree(name)
+                elif (
+                    name in req_packages
+                ):  # Add uninstalled but required packages
+                    trees[name] = {}
 
             # Display trees
             for name in sorted(trees.keys()):
 
-                def format_tree(tree: dict, pkg: str, level: int = 0) -> None:
-                    prefix = "│   " * (level - 1) + "├── " if level > 0 else ""
+                def format_tree(
+                    pkg: str,
+                    tree: dict,
+                    level: int = 0,
+                    last_sibling=True,
+                    prefix="",
+                ) -> None:
+                    # Get package information
                     pkg_required = req_packages.get(pkg, "")
                     pkg_installed = installed_packages.get(pkg)
                     pkg_status = self._get_package_status(
                         pkg, pkg_required, pkg_installed
                     )
 
-                    display_name = f"{prefix}{pkg}" if level > 0 else pkg
+                    # Create tree branches
+                    if level > 0:
+                        branch = "└── " if last_sibling else "├── "
+                        display_name = f"{prefix}{branch}{pkg}"
+                        if tree.get("circular"):
+                            display_name += " [dim](circular)[/dim]"
+                    else:
+                        display_name = pkg
+
+                    # Format display values
                     required_display = (
                         pkg_required.lstrip("=")
                         if pkg_required
                         else "[yellow]None[/yellow]" if level == 0 else ""
                     )
 
+                    # Dim the display for dependencies
                     if level > 0:
                         display_name = f"[dim]{display_name}[/dim]"
                         if pkg_installed:
                             pkg_installed = f"[dim]{pkg_installed}[/dim]"
                         pkg_status = f"[dim]{pkg_status}[/dim]"
 
+                    # Add row to table
                     table.add_row(
                         display_name,
                         required_display,
@@ -500,19 +543,39 @@ class PackageManager:
                         pkg_status,
                     )
 
-                    if pkg in installed_packages:
-                        for dep, subtree in sorted(tree.get(pkg, {}).items()):
-                            if dep in installed_packages:
-                                format_tree(tree, dep, level + 1)
+                    # Process dependencies recursively
+                    if not tree.get("circular"):
+                        deps = [
+                            (k, v)
+                            for k, v in sorted(tree.items())
+                            if k != "circular"
+                        ]
+                        for i, (dep, subtree) in enumerate(deps):
+                            new_prefix = prefix + (
+                                "    " if last_sibling else "│   "
+                            )
+                            # Get sub-dependencies if not already in tree
+                            if not subtree and dep in installed_packages:
+                                subtree = self._build_dependency_tree(dep)
+                            format_tree(
+                                dep,
+                                subtree,
+                                level + 1,
+                                i == len(deps) - 1,
+                                new_prefix,
+                            )
 
-                format_tree(trees, name)
+                format_tree(name, trees[name])
                 if name != sorted(trees.keys())[-1]:
                     table.add_row("", "", "", "")
         else:
-            table.add_column("Package", style="cyan")
+            table.add_column("Package", style="")
             table.add_column("Required", style="blue")
             table.add_column("Installed", style="cyan")
             table.add_column("Status", justify="right")
+
+            # Get main packages for checking
+            main_packages = self._get_all_main_packages()
 
             for name in sorted(packages_to_show.keys()):
                 required_version = req_packages.get(name, "")
@@ -520,6 +583,13 @@ class PackageManager:
                 status = self._get_package_status(
                     name, required_version, installed_version
                 )
+
+                # Dim the display if it's not a main package
+                if name not in main_packages:
+                    name = f"[dim]{name}[/dim]"
+                    if installed_version:
+                        installed_version = f"[dim]{installed_version}[/dim]"
+                    status = f"[dim]{status}[/dim]"
 
                 table.add_row(
                     name,
@@ -532,3 +602,132 @@ class PackageManager:
                     status,
                 )
         console.print(table)
+
+    def fix_packages(self, auto_fix: bool = False) -> bool:
+        """Fix package inconsistencies:
+        1. Install missing packages from requirements.txt
+        2. Add installed packages to requirements.txt
+        3. Fix version mismatches
+        """
+        req_packages = self._parse_requirements()
+        installed_packages = self._get_all_installed_packages()
+        fixed = False
+
+        # Group issues by type
+        missing_packages = []  # in requirements.txt but not installed
+        unlisted_packages = []  # installed but not in requirements.txt
+        version_mismatches = []  # version doesn't match requirements.txt
+
+        for name, req_version in req_packages.items():
+            if name not in installed_packages:
+                missing_packages.append((name, req_version.lstrip("==")))
+            elif req_version and installed_packages[name] != req_version.lstrip(
+                "=="
+            ):
+                version_mismatches.append(
+                    (name, req_version.lstrip("=="), installed_packages[name])
+                )
+
+        # Get directly installed packages using pip
+        try:
+            result = subprocess.run(
+                ["pip", "list", "--not-required", "--format=json"],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                import json
+
+                for pkg in json.loads(result.stdout):
+                    name = pkg["name"]
+                    if name not in req_packages and not (
+                        name.lower() in ("pip", "setuptools", "wheel")
+                        or name.startswith(("pip-", "setuptools-", "wheel-"))
+                    ):
+                        unlisted_packages.append((name, pkg["version"]))
+        except Exception:
+            pass
+
+        # Display issues
+        if not (missing_packages or unlisted_packages or version_mismatches):
+            console.print("[green]No package inconsistencies found[/green]")
+            return True
+
+        if missing_packages:
+            console.print("\n[red]Missing packages:[/red]")
+            for name, version in missing_packages:
+                text = Text()
+                text.append("  ", style=Style(color="red"))
+                text.append("✗", style=Style(color="red"))
+                text.append(" ")
+                text.append(f"{name}=={version}", style=Style())
+                console.print(text)
+
+        if unlisted_packages:
+            console.print("\nPackages not in requirements.txt:")
+            for name, version in unlisted_packages:
+                text = Text()
+                text.append("  ", style=Style(color="blue"))
+                text.append("△", style=Style(color="blue"))
+                text.append(" ")
+                text.append(f"{name}=={version}", style=Style())
+                console.print(text)
+
+        if version_mismatches:
+            console.print("\nVersion mismatches:")
+            for name, req_version, inst_version in version_mismatches:
+                text = Text()
+                text.append("  ", style=Style(color="yellow"))
+                text.append("≠", style=Style(color="yellow"))
+                text.append(" ")
+                text.append(name, style=Style())
+                text.append(": required==")
+                text.append(req_version)
+                text.append(", installed==")
+                text.append(inst_version, style=Style(color="red"))
+                console.print(text)
+
+        # Show summary of actions
+        console.print("\nSummary of actions to be taken:")
+        if missing_packages:
+            console.print(
+                f"  • Install {len(missing_packages)} missing package(s)"
+            )
+        if version_mismatches:
+            console.print(
+                f"  • Update {len(version_mismatches)} package version(s)"
+            )
+        if unlisted_packages:
+            console.print(
+                f"  • Add {len(unlisted_packages)} package(s) to requirements.txt"
+            )
+
+        # Auto-fix or ask for confirmation
+        if not auto_fix:
+            if not Confirm.ask("\nDo you want to fix these issues?"):
+                return False
+
+        # Fix missing packages
+        for name, version in missing_packages:
+            console.print(f"\n[dim]Installing {name}=={version}...[/dim]")
+            if self.add(name, version):
+                fixed = True
+
+        # Fix version mismatches
+        for name, req_version, _ in version_mismatches:
+            console.print(f"\n[dim]Updating {name} to {req_version}...[/dim]")
+            if self.add(name, req_version):
+                fixed = True
+
+        # Add unlisted packages to requirements.txt
+        if unlisted_packages:
+            packages = self._parse_requirements()
+            for name, version in unlisted_packages:
+                packages[name] = f"=={version}"
+            self._write_requirements(packages)
+            console.print("\n[green]✓ Updated requirements.txt[/green]")
+            fixed = True
+
+        if fixed:
+            console.print("\n[green]✓ All issues have been fixed[/green]")
+        return fixed
