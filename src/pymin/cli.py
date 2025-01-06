@@ -194,15 +194,34 @@ def venv(name):
             if Confirm.ask(
                 "\n[yellow]Found requirements.txt. Do you want to install the dependencies?[/yellow]"
             ):
-                # Activate environment, upgrade pip and install dependencies
-                os.execl(
-                    shell,
-                    shell_name,
-                    "-c",
-                    f"source {activate_script} && pip install --upgrade pip && pip install -r requirements.txt && exec {shell_name}",
+                # 先啟動虛擬環境並升級 pip
+                subprocess.run(
+                    [
+                        shell,
+                        "-c",
+                        f"source {activate_script} && pip install --upgrade pip",
+                    ],
+                    check=True,
                 )
 
-        # Just activate environment if no requirements.txt or user declines installation
+                # 在虛擬環境中安裝套件
+                os.environ["VIRTUAL_ENV"] = str(venv_path)
+                os.environ["PATH"] = f"{venv_path}/bin:{os.environ['PATH']}"
+                package_manager = PackageManager()
+                with open("requirements.txt") as f:
+                    packages = [
+                        line.strip()
+                        for line in f
+                        if line.strip() and not line.startswith("#")
+                    ]
+                for package in packages:
+                    if "==" in package:
+                        name, version = package.split("==")
+                        package_manager.add(name, version)
+                    else:
+                        package_manager.add(package)
+
+        # 啟動虛擬環境
         os.execl(
             shell,
             shell_name,
