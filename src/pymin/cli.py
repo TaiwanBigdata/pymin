@@ -17,6 +17,7 @@ import sys
 from .package import PackageManager
 from typing import Optional
 from .utils import get_current_shell
+from rich.markup import escape
 
 # Force color output
 console = Console(force_terminal=True, color_system="auto")
@@ -500,6 +501,137 @@ def fix(y: bool):
     """Fix package inconsistencies"""
     pm = PackageManager()
     pm.fix_packages(auto_confirm=y)
+
+
+@cli.command()
+def release():
+    """Build and publish package to PyPI"""
+    if not Path("pyproject.toml").exists():
+        console.print("[red]No pyproject.toml found in current directory[/red]")
+        return
+
+    # Check if twine and build are installed
+    required_packages = ["twine", "build"]
+    need_install = []
+    for pkg in required_packages:
+        try:
+            __import__(pkg)
+        except ImportError:
+            need_install.append(pkg)
+
+    # Install required packages
+    if need_install:
+        console.print("[yellow]Installing required packages...[/yellow]")
+        for pkg in need_install:
+            with console.status(
+                f"[yellow]Installing [cyan]{pkg}[/cyan]...[/yellow]",
+                spinner="dots",
+            ) as status:
+                process = subprocess.run(
+                    ["pip", "install", pkg],
+                    capture_output=True,
+                    text=True,
+                )
+                if process.returncode != 0:
+                    console.print(f"[red]Failed to install {pkg}:[/red]")
+                    console.print(f"[red]{process.stderr}[/red]")
+                    return
+                console.print(f"[green]✓ Installed {pkg}[/green]")
+
+    # Remove existing dist directory
+    if Path("dist").exists():
+        import shutil
+
+        shutil.rmtree("dist")
+        console.print("[green]✓ Removed existing dist directory[/green]")
+
+    # Build package
+    console.print("\n[yellow]Building package...[/yellow]")
+    with console.status(
+        "[yellow]Building...[/yellow]", spinner="dots"
+    ) as status:
+        process = subprocess.run(
+            ["pyproject-build"],
+            capture_output=True,
+            text=True,
+        )
+        if process.returncode != 0:
+            console.print("[red]Build failed:[/red]")
+            console.print(f"[red]{process.stderr}[/red]")
+            return
+        console.print("[green]✓ Package built successfully[/green]")
+
+    # Upload to PyPI
+    console.print("\n[yellow]Uploading to PyPI...[/yellow]")
+    result = subprocess.run(
+        ["twine", "upload", "--disable-progress-bar", "dist/*"],
+        capture_output=True,
+        text=True,
+        env={"PYTHONIOENCODING": "utf-8", **os.environ},
+    )
+    if result.returncode == 0:
+        console.print("[green]✓ Package published successfully[/green]")
+    else:
+        console.print("\n[red]Upload failed[/red]")
+        error_msg = result.stderr or result.stdout
+
+        from rich.text import Text
+
+        # Extract and format error messages
+        error_lines = error_msg.splitlines()
+        for line in error_lines:
+            if not line.startswith(("[2K", "[?25")):  # Skip progress bar lines
+                if line.strip():
+                    # Convert ANSI to plain text
+                    clean_line = Text.from_ansi(line.strip()).plain
+                    if (
+                        "HTTPError:" in clean_line
+                        or "File already exists" in clean_line
+                    ):
+                        console.print(f"[red]{clean_line}[/red]")
+                    elif "Uploading" in clean_line:
+                        console.print(f"[yellow]{clean_line}[/yellow]")
+                    else:
+                        console.print(clean_line)
+
+        # Show solution based on error type
+        if "File already exists" in error_msg:
+            console.print(
+                "\n[yellow]Please update the version number in pyproject.toml and try again[/yellow]"
+            )
+        elif "Invalid credentials" in error_msg:
+            console.print(
+                "\n[yellow]Please check your PyPI credentials in ~/.pypirc or use environment variables TWINE_USERNAME and TWINE_PASSWORD[/yellow]"
+            )
+        elif "400 Bad Request" in error_msg:
+            console.print(
+                "\n[yellow]Please check your package metadata in pyproject.toml (name, version, etc.)[/yellow]"
+            )
+        elif "403 Forbidden" in error_msg:
+            console.print(
+                "\n[yellow]Please check if you have permission to upload to this package on PyPI[/yellow]"
+            )
+        return
+
+    # Clean up temporary packages
+    if need_install:
+        console.print("\n[yellow]Cleaning up temporary packages...[/yellow]")
+        for pkg in need_install:
+            with console.status(
+                f"[yellow]Removing [cyan]{pkg}[/cyan]...[/yellow]",
+                spinner="dots",
+            ) as status:
+                process = subprocess.run(
+                    ["pip", "uninstall", "-y", pkg],
+                    capture_output=True,
+                    text=True,
+                )
+                if process.returncode == 0:
+                    console.print(f"[green]✓ Removed {pkg}[/green]")
+                else:
+                    console.print(
+                        f"[yellow]Warning: Failed to remove {pkg}[/yellow]"
+                    )
 
 
 if __name__ == "__main__":
