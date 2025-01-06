@@ -136,13 +136,38 @@ def search(name: str, threshold: float):
 @click.argument("name", default="env")
 def venv(name):
     """Create a virtual environment with specified name"""
+    venv_path = Path(name)
+
+    # Check if virtual environment already exists
+    if venv_path.exists() and venv_path.is_dir():
+        if Confirm.ask(
+            f"\n[yellow]Virtual environment '{name}' already exists. Do you want to rebuild it?[/yellow]"
+        ):
+            # Deactivate if current environment is active
+            if os.environ.get("VIRTUAL_ENV") == str(venv_path.absolute()):
+                shell, shell_name = get_current_shell()
+                deactivate_cmd = (
+                    f"source {venv_path}/bin/activate && deactivate"
+                )
+                subprocess.run([shell, "-c", deactivate_cmd])
+
+            # Remove existing virtual environment
+            import shutil
+
+            shutil.rmtree(venv_path)
+            console.print(
+                f"[green]✓ Removed existing environment: {name}[/green]"
+            )
+        else:
+            console.print("[yellow]Operation cancelled.[/yellow]")
+            return
+
     manager = VenvManager()
     success, message = manager.create_venv(name)
 
     if success:
         venv_info = manager.get_venv_info(name)
         text = Text.assemble(
-            "\n",
             ("Virtual Environment: ", "dim"),
             (name, "cyan"),
             "\n",
@@ -157,18 +182,6 @@ def venv(name):
             "\n",
             ("Status: ", "dim"),
             ("✓ Created", "green"),
-            "\n",
-            "\n",
-            ("Next Steps", "bold white"),
-            (":\n", "dim"),
-            ("1. ", "dim"),
-            ("source ", "cyan"),
-            (f"{name}/bin/activate", "cyan"),
-            "\n",
-            ("2. ", "dim"),
-            ("pip install -r requirements.txt", "cyan"),
-            " (if exists)",
-            "\n",
         )
         panel = Panel.fit(
             text,
@@ -176,15 +189,39 @@ def venv(name):
             title_align="left",
             border_style="bright_blue",
         )
+        console.print(panel)
+
+        # Prepare to activate virtual environment
+        activate_script = venv_path / "bin" / "activate"
+        shell, shell_name = get_current_shell()
+
+        # Check if requirements.txt exists
+        if Path("requirements.txt").exists():
+            if Confirm.ask(
+                "\n[yellow]Found requirements.txt. Do you want to install the dependencies?[/yellow]"
+            ):
+                # Activate environment, upgrade pip and install dependencies
+                os.execl(
+                    shell,
+                    shell_name,
+                    "-c",
+                    f"source {activate_script} && pip install --upgrade pip && pip install -r requirements.txt && exec {shell_name}",
+                )
+
+        # Just activate environment if no requirements.txt or user declines installation
+        os.execl(
+            shell,
+            shell_name,
+            "-c",
+            f"source {activate_script} && exec {shell_name}",
+        )
     else:
         text = Text.assemble(
-            "\n",
             ("Status: ", "dim"),
             ("✗ Failed", "red"),
             "\n",
             ("Error: ", "dim"),
             (message, "red"),
-            "\n",
         )
         panel = Panel.fit(
             text,
@@ -192,10 +229,7 @@ def venv(name):
             title_align="left",
             border_style="red",
         )
-
-    console.print("\n")
-    console.print(panel)
-    console.print("\n")
+        console.print(panel)
 
 
 @cli.command()
