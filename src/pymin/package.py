@@ -491,16 +491,6 @@ class PackageManager:
                 # Prepare all packages to remove
                 all_to_remove = [package_to_remove] + sorted(deps_to_remove)
 
-                # Show what will be removed
-                if deps_to_remove:
-                    status.update(
-                        f"{main_status}\n[dim]Will also remove: {', '.join(sorted(deps_to_remove))}[/dim]"
-                    )
-                    if not auto_confirm:
-                        time.sleep(
-                            1
-                        )  # Give user a moment to see what will be removed
-
                 # Remove all packages in one command
                 process = subprocess.Popen(
                     ["pip", "uninstall", "-y"] + all_to_remove,
@@ -510,19 +500,6 @@ class PackageManager:
                     bufsize=1,
                     universal_newlines=True,
                 )
-
-                while True:
-                    output = process.stdout.readline()
-                    if output == "" and process.poll() is not None:
-                        break
-                    if output:
-                        # Show uninstall progress
-                        if "Removing" in output:
-                            pkg = output.split()[-1].strip()
-                            if pkg != package_to_remove:
-                                status.update(
-                                    f"{main_status}\n[dim]Removing: {pkg}[/dim]"
-                                )
 
                 _, stderr = process.communicate()
                 if process.returncode != 0:
