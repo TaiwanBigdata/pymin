@@ -570,47 +570,55 @@ def release():
     if result.returncode == 0:
         console.print("[green]✓ Package published successfully[/green]")
     else:
-        console.print("\n[red]✗ Upload failed[/red]")
+        console.print("[red]✗ Upload failed[/red]")
         error_msg = result.stderr or result.stdout
 
         from rich.text import Text
 
         # Extract and format error messages
         error_lines = error_msg.splitlines()
+        upload_info_shown = False
         for line in error_lines:
             if not line.startswith(("[2K", "[?25")):  # Skip progress bar lines
                 if line.strip():
                     # Convert ANSI to plain text
                     clean_line = Text.from_ansi(line.strip()).plain
-                    if "Uploading" in clean_line:
+                    if "Uploading" in clean_line and not upload_info_shown:
+                        if "legacy" in clean_line:
+                            continue  # Skip the legacy URL line
                         pkg_name = clean_line.split()[-1]
                         console.print(
-                            f"[blue]Uploading package [cyan]{pkg_name}[/cyan][/blue]"
+                            f"[blue]Uploading [cyan]{pkg_name}[/cyan][/blue]"
                         )
+                        upload_info_shown = True
                     elif (
                         "HTTPError:" in clean_line
                         or "File already exists" in clean_line
                     ):
                         console.print(f"[red]{clean_line}[/red]")
-                    else:
+                    elif not any(
+                        skip in clean_line
+                        for skip in ["Uploading", "WARNING", "ERROR"]
+                    ):
                         console.print(clean_line)
 
         # Show solution based on error type
+        console.print()  # Add empty line before solution
         if "File already exists" in error_msg:
             console.print(
-                "\n[yellow]Solution: Update the version number in [cyan]pyproject.toml[/cyan][/yellow]"
+                "[yellow]Solution: Update the version number in [cyan]pyproject.toml[/cyan][/yellow]"
             )
         elif "Invalid credentials" in error_msg:
             console.print(
-                "\n[yellow]Solution: Check your PyPI credentials in [cyan]~/.pypirc[/cyan] or set [cyan]TWINE_USERNAME[/cyan] and [cyan]TWINE_PASSWORD[/cyan][/yellow]"
+                "[yellow]Solution: Check your PyPI credentials in [cyan]~/.pypirc[/cyan] or set [cyan]TWINE_USERNAME[/cyan] and [cyan]TWINE_PASSWORD[/cyan][/yellow]"
             )
         elif "400 Bad Request" in error_msg:
             console.print(
-                "\n[yellow]Solution: Check your package metadata in [cyan]pyproject.toml[/cyan][/yellow]"
+                "[yellow]Solution: Check your package metadata in [cyan]pyproject.toml[/cyan][/yellow]"
             )
         elif "403 Forbidden" in error_msg:
             console.print(
-                "\n[yellow]Solution: Verify your upload permissions for this package on PyPI[/yellow]"
+                "[yellow]Solution: Verify your upload permissions for this package on PyPI[/yellow]"
             )
         return
 
