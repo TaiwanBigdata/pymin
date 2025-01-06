@@ -521,10 +521,10 @@ def release():
 
     # Install required packages
     if need_install:
-        console.print("[yellow]Installing required packages...[/yellow]")
+        console.print("[blue]Installing required packages...[/blue]")
         for pkg in need_install:
             with console.status(
-                f"[yellow]Installing [cyan]{pkg}[/cyan]...[/yellow]",
+                f"[blue]Installing [cyan]{pkg}[/cyan]...[/blue]",
                 spinner="dots",
             ) as status:
                 process = subprocess.run(
@@ -546,10 +546,8 @@ def release():
         console.print("[green]✓ Removed existing dist directory[/green]")
 
     # Build package
-    console.print("\n[yellow]Building package...[/yellow]")
-    with console.status(
-        "[yellow]Building...[/yellow]", spinner="dots"
-    ) as status:
+    console.print("\n[blue]Building package...[/blue]")
+    with console.status("[blue]Building...[/blue]", spinner="dots") as status:
         process = subprocess.run(
             ["pyproject-build"],
             capture_output=True,
@@ -562,7 +560,7 @@ def release():
         console.print("[green]✓ Package built successfully[/green]")
 
     # Upload to PyPI
-    console.print("\n[yellow]Uploading to PyPI...[/yellow]")
+    console.print("\n[blue]Uploading to PyPI...[/blue]")
     result = subprocess.run(
         ["twine", "upload", "--disable-progress-bar", "dist/*"],
         capture_output=True,
@@ -572,7 +570,7 @@ def release():
     if result.returncode == 0:
         console.print("[green]✓ Package published successfully[/green]")
     else:
-        console.print("\n[red]Upload failed[/red]")
+        console.print("\n[red]✗ Upload failed[/red]")
         error_msg = result.stderr or result.stdout
 
         from rich.text import Text
@@ -584,41 +582,44 @@ def release():
                 if line.strip():
                     # Convert ANSI to plain text
                     clean_line = Text.from_ansi(line.strip()).plain
-                    if (
+                    if "Uploading" in clean_line:
+                        pkg_name = clean_line.split()[-1]
+                        console.print(
+                            f"[blue]Uploading package [cyan]{pkg_name}[/cyan][/blue]"
+                        )
+                    elif (
                         "HTTPError:" in clean_line
                         or "File already exists" in clean_line
                     ):
                         console.print(f"[red]{clean_line}[/red]")
-                    elif "Uploading" in clean_line:
-                        console.print(f"[yellow]{clean_line}[/yellow]")
                     else:
                         console.print(clean_line)
 
         # Show solution based on error type
         if "File already exists" in error_msg:
             console.print(
-                "\n[yellow]Please update the version number in pyproject.toml and try again[/yellow]"
+                "\n[yellow]Solution: Update the version number in [cyan]pyproject.toml[/cyan][/yellow]"
             )
         elif "Invalid credentials" in error_msg:
             console.print(
-                "\n[yellow]Please check your PyPI credentials in ~/.pypirc or use environment variables TWINE_USERNAME and TWINE_PASSWORD[/yellow]"
+                "\n[yellow]Solution: Check your PyPI credentials in [cyan]~/.pypirc[/cyan] or set [cyan]TWINE_USERNAME[/cyan] and [cyan]TWINE_PASSWORD[/cyan][/yellow]"
             )
         elif "400 Bad Request" in error_msg:
             console.print(
-                "\n[yellow]Please check your package metadata in pyproject.toml (name, version, etc.)[/yellow]"
+                "\n[yellow]Solution: Check your package metadata in [cyan]pyproject.toml[/cyan][/yellow]"
             )
         elif "403 Forbidden" in error_msg:
             console.print(
-                "\n[yellow]Please check if you have permission to upload to this package on PyPI[/yellow]"
+                "\n[yellow]Solution: Verify your upload permissions for this package on PyPI[/yellow]"
             )
         return
 
     # Clean up temporary packages
     if need_install:
-        console.print("\n[yellow]Cleaning up temporary packages...[/yellow]")
+        console.print("\n[blue]Cleaning up temporary packages...[/blue]")
         for pkg in need_install:
             with console.status(
-                f"[yellow]Removing [cyan]{pkg}[/cyan]...[/yellow]",
+                f"[blue]Removing [cyan]{pkg}[/cyan]...[/blue]",
                 spinner="dots",
             ) as status:
                 process = subprocess.run(
