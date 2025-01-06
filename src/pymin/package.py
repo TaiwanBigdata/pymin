@@ -279,14 +279,37 @@ class PackageManager:
             if pre_installed_version:
                 # If version is specified and different from installed
                 if version and version != pre_installed_version:
-                    cmd = ["pip", "install", f"{package}=={version}"]
-                    result = subprocess.run(cmd, capture_output=True, text=True)
-
-                    if result.returncode != 0:
-                        console.print(
-                            f"[red bold]Failed to update [cyan]{package}[/cyan]:[/red bold]\n{result.stderr}"
+                    main_status = f"[yellow]Installing [cyan]{package}[/cyan]==[white]{version}[/white]..."
+                    with console.status(main_status, spinner="dots") as status:
+                        cmd = ["pip", "install", f"{package}=={version}"]
+                        process = subprocess.Popen(
+                            cmd,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            text=True,
+                            bufsize=1,
+                            universal_newlines=True,
                         )
-                        return False
+
+                        while True:
+                            output = process.stdout.readline()
+                            if output == "" and process.poll() is not None:
+                                break
+                            if output:
+                                # Check for dependency installation messages
+                                if "Collecting" in output:
+                                    dep = output.split()[1].strip()
+                                    if dep != package:
+                                        status.update(
+                                            f"{main_status}\n[dim]Installing dependency: {dep}[/dim]"
+                                        )
+
+                        _, stderr = process.communicate()
+                        if process.returncode != 0:
+                            console.print(
+                                f"[red bold]Failed to update [cyan]{package}[/cyan]:[/red bold]\n{stderr}"
+                            )
+                            return False
 
                     installed_version = version
                 else:
@@ -299,39 +322,68 @@ class PackageManager:
                 else:
                     cmd.append(package)
 
-                result = subprocess.run(cmd, capture_output=True, text=True)
-
-                if "already satisfied" in result.stdout:
-                    # Try to get version from pip output first
-                    installed_version = self._parse_version_from_pip_output(
-                        result.stdout, package
+                main_status = f"[yellow]Installing [cyan]{package}[/cyan]..."
+                with console.status(main_status, spinner="dots") as status:
+                    process = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        bufsize=1,
+                        universal_newlines=True,
                     )
-                    if not installed_version:
+
+                    while True:
+                        output = process.stdout.readline()
+                        if output == "" and process.poll() is not None:
+                            break
+                        if output:
+                            # Check for dependency installation messages
+                            if "Collecting" in output:
+                                dep = output.split()[1].strip()
+                                if dep != package:
+                                    status.update(
+                                        f"{main_status}\n[dim]Installing dependency: {dep}[/dim]"
+                                    )
+
+                    _, stderr = process.communicate()
+
+                    if "already satisfied" in stderr:
+                        # Try to get version from pip output first
+                        installed_version = self._parse_version_from_pip_output(
+                            stderr, package
+                        )
+                        if not installed_version:
+                            installed_version = self._get_installed_version(
+                                package
+                            )
+
+                        if not installed_version:
+                            console.print(
+                                f"[red bold]Failed to determine version for [cyan]{package}[/cyan][/red bold]"
+                            )
+                            return False
+                    else:
+                        if process.returncode != 0:
+                            console.print(
+                                f"[red bold]Failed to install [cyan]{package}[/cyan]:[/red bold]\n{stderr}"
+                            )
+                            return False
+
                         installed_version = self._get_installed_version(package)
-
-                    if not installed_version:
-                        console.print(
-                            f"[red bold]Failed to determine version for [cyan]{package}[/cyan][/red bold]"
-                        )
-                        return False
-                else:
-                    if result.returncode != 0:
-                        console.print(
-                            f"[red bold]Failed to install [cyan]{package}[/cyan]:[/red bold]\n{result.stderr}"
-                        )
-                        return False
-
-                    installed_version = self._get_installed_version(package)
-                    if not installed_version:
-                        console.print(
-                            f"[red bold]Package [cyan]{package}[/cyan] was not installed correctly.[/red bold]"
-                        )
-                        return False
+                        if not installed_version:
+                            console.print(
+                                f"[red bold]Package [cyan]{package}[/cyan] was not installed correctly.[/red bold]"
+                            )
+                            return False
 
             # Only update requirements.txt if we have a valid version
             if installed_version:
                 packages[package] = f"=={installed_version}"
                 self._write_requirements(packages)
+                console.print(
+                    f"[green]✓ Added {package}=={installed_version}[/green]"
+                )
                 return True
             return False
 
@@ -341,6 +393,25 @@ class PackageManager:
             )
             return False
 
+    def _get_all_dependencies_recursive(
+        self, package: str, seen=None
+    ) -> Set[str]:
+        """Get all dependencies (including dependencies of dependencies) for a package"""
+        if seen is None:
+            seen = set()
+
+        if package in seen:
+            return set()
+
+        seen.add(package)
+        deps = get_package_dependencies(package)
+        all_deps = deps.copy()
+
+        for dep in deps:
+            all_deps.update(self._get_all_dependencies_recursive(dep, seen))
+
+        return all_deps
+
     def remove(self, package: str) -> bool:
         """Remove a package from requirements.txt and uninstall it"""
         if not Path(os.environ.get("VIRTUAL_ENV", "")).exists():
@@ -348,33 +419,103 @@ class PackageManager:
             return False
 
         packages = self._parse_requirements()
-        if package not in packages:
+        normalized_package = normalize_package_name(package)
+
+        # Find the package in requirements.txt (case-insensitive)
+        package_to_remove = None
+        for pkg in packages:
+            if normalize_package_name(pkg) == normalized_package:
+                package_to_remove = pkg
+                break
+
+        if not package_to_remove:
             console.print(
                 f"[yellow]Package {package} not found in requirements.txt[/yellow]"
             )
             return False
 
         try:
+            # Get all dependencies recursively (including dependencies of dependencies)
+            deps_to_remove = self._get_all_dependencies_recursive(
+                package_to_remove
+            )
+
+            # Get all installed packages except the one being removed
+            all_packages = {
+                name: version
+                for name, version in self._get_all_installed_packages().items()
+                if normalize_package_name(name) != normalized_package
+            }
+
+            # Get all dependencies of other packages recursively
+            used_deps = set()
+            for pkg in all_packages:
+                if (
+                    pkg in packages
+                ):  # Only check dependencies of packages in requirements.txt
+                    pkg_deps = self._get_all_dependencies_recursive(pkg)
+                    used_deps.update(pkg_deps)
+
+            # Filter out dependencies that are used by other packages
+            deps_to_remove = {
+                dep
+                for dep in deps_to_remove
+                if normalize_package_name(dep)
+                not in {normalize_package_name(d) for d in used_deps}
+            }
+
+            # First remove the main package
             result = subprocess.run(
-                ["pip", "uninstall", "-y", package],
+                ["pip", "uninstall", "-y", package_to_remove],
                 capture_output=True,
                 text=True,
             )
             if result.returncode != 0:
                 console.print(
-                    f"[red]Failed to uninstall {package}:[/red]\n{result.stderr}"
+                    f"[red]Failed to uninstall {package_to_remove}:[/red]\n{result.stderr}"
                 )
                 return False
 
-            del packages[package]
+            # Then remove unused dependencies
+            if deps_to_remove:
+                console.print(
+                    f"\n[yellow]Removing unused dependencies:[/yellow]"
+                )
+                for dep in sorted(deps_to_remove):
+                    console.print(f"  • Removing [cyan]{dep}[/cyan]")
+                    try:
+                        result = subprocess.run(
+                            ["pip", "uninstall", "-y", dep],
+                            capture_output=True,
+                            text=True,
+                        )
+                        if result.returncode != 0:
+                            console.print(
+                                f"[yellow]Warning: Failed to remove dependency {dep}:[/yellow]\n{result.stderr}"
+                            )
+                    except Exception as e:
+                        console.print(
+                            f"[yellow]Warning: Error removing dependency {dep}:[/yellow]\n{str(e)}"
+                        )
+
+            del packages[package_to_remove]
             self._write_requirements(packages)
             # Reset caches when removing package
             self._installed_packages_cache = None
             self._dependencies_cache = {}
-            console.print(f"[green]✓ Removed {package}[/green]")
+
+            if deps_to_remove:
+                console.print(
+                    f"[green]✓ Removed {package_to_remove} and {len(deps_to_remove)} unused dependencies[/green]"
+                )
+            else:
+                console.print(f"[green]✓ Removed {package_to_remove}[/green]")
             return True
+
         except Exception as e:
-            console.print(f"[red]Error removing {package}:[/red]\n{str(e)}")
+            console.print(
+                f"[red]Error removing {package_to_remove}:[/red]\n{str(e)}"
+            )
             return False
 
     def _get_all_installed_packages(self) -> Dict[str, str]:
@@ -390,8 +531,15 @@ class PackageManager:
             # Get all installed packages
             for dist in importlib.metadata.distributions():
                 name = dist.metadata["Name"]
-                # Skip development package
-                if normalize_package_name(name) != "pymin":
+                normalized_name = normalize_package_name(name)
+                # Skip system packages, pip, and development package
+                if (
+                    normalized_name not in system_pkgs
+                    and not normalized_name.startswith(
+                        ("pip-", "setuptools-", "wheel-")
+                    )
+                    and normalized_name != "pymin"
+                ):
                     packages[name] = dist.version
         except Exception as e:
             console.print(
@@ -1024,18 +1172,35 @@ class PackageManager:
         ) as status:
             # Fix version mismatches first (to avoid dependency conflicts)
             for name, req_version, _ in version_mismatches:
-                status.update(
-                    f"[yellow]Updating [white]{name}[/yellow] to [white]{req_version}[/white]..."
-                )
+                main_status = f"[yellow]Updating [white]{name}[/yellow] to [white]{req_version}[/white]..."
+                status.update(main_status)
                 try:
-                    result = subprocess.run(
+                    process = subprocess.Popen(
                         ["pip", "install", f"{name}=={req_version}"],
-                        capture_output=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
                         text=True,
+                        bufsize=1,
+                        universal_newlines=True,
                     )
-                    if result.returncode != 0:
+
+                    while True:
+                        output = process.stdout.readline()
+                        if output == "" and process.poll() is not None:
+                            break
+                        if output:
+                            # Check for dependency installation messages
+                            if "Collecting" in output:
+                                dep = output.split()[1].strip()
+                                if dep != name:
+                                    status.update(
+                                        f"{main_status}\n[dim]Installing dependency: {dep}[/dim]"
+                                    )
+
+                    _, stderr = process.communicate()
+                    if process.returncode != 0:
                         console.print(
-                            f"\n[red]Failed to update {name}:[/red]\n{result.stderr}"
+                            f"\n[red]Failed to update {name}:[/red]\n{stderr}"
                         )
                         if not auto_fix:
                             if not Confirm.ask(
@@ -1054,18 +1219,35 @@ class PackageManager:
 
             # Fix missing packages
             for name, version in missing_packages:
-                status.update(
-                    f"[yellow]Installing [white]{name}[/yellow]==[white]{version}[/white]..."
-                )
+                main_status = f"[yellow]Installing [white]{name}[/yellow]==[white]{version}[/white]..."
+                status.update(main_status)
                 try:
-                    result = subprocess.run(
+                    process = subprocess.Popen(
                         ["pip", "install", f"{name}=={version}"],
-                        capture_output=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
                         text=True,
+                        bufsize=1,
+                        universal_newlines=True,
                     )
-                    if result.returncode != 0:
+
+                    while True:
+                        output = process.stdout.readline()
+                        if output == "" and process.poll() is not None:
+                            break
+                        if output:
+                            # Check for dependency installation messages
+                            if "Collecting" in output:
+                                dep = output.split()[1].strip()
+                                if dep != name:
+                                    status.update(
+                                        f"{main_status}\n[dim]Installing dependency: {dep}[/dim]"
+                                    )
+
+                    _, stderr = process.communicate()
+                    if process.returncode != 0:
                         console.print(
-                            f"\n[red]Failed to install {name}:[/red]\n{result.stderr}"
+                            f"\n[red]Failed to install {name}:[/red]\n{stderr}"
                         )
                         if not auto_fix:
                             if not Confirm.ask(

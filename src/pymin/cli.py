@@ -445,6 +445,10 @@ def remove(package: str):
     manager.remove(package)
 
 
+# Add 'rm' as an alias for 'remove'
+cli.add_command(remove, "rm")
+
+
 @cli.command(name="list")
 @click.option("-a", "--all", is_flag=True, help="List all installed packages")
 @click.option("-t", "--tree", is_flag=True, help="Show dependency tree")

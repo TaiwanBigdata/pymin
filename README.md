@@ -1,6 +1,6 @@
 # PyMin
 
-### pymin (0.0.2)
+### pymin (0.0.3)
 
 PyMin embodies Python's minimalist philosophy: a focused tool that does one thing exceptionally well. The name reflects our commitment to minimalism - minimal configuration, minimal complexity, but maximum effectiveness in Python development workflow.
 
@@ -183,6 +183,7 @@ pymin/
 │       ├── __main__.py        # Allow direct execution of the package
 │       ├── check.py           # Package name validation service with PyPI availability checking and security analysis
 │       ├── cli.py             # Command-line interface providing PyPI package name validation and search functionality
+│       ├── package.py         # Package management functionality providing dependency handling and requirements.txt management
 │       ├── search.py          # Package name similarity search service with PyPI integration
 │       ├── security.py        # Security service for package name typosquatting detection and analysis
 │       ├── similarity.py      # String similarity analysis service for package name comparison
