@@ -432,6 +432,18 @@ def deactivate():
         f"  To:   No active environment"
     )
     shell, shell_name = get_current_shell()
+
+    # 如果虛擬環境資料夾不存在，直接執行 python -m venv deactivate
+    if not current_venv.exists():
+        os.execl(
+            shell,
+            shell_name,
+            "-c",
+            f"unset VIRTUAL_ENV && unset PYTHONHOME && export PATH=$(echo $PATH | tr ':' '\n' | grep -v {current_venv}/bin | tr '\n' ':' | sed 's/:$//') && exec {shell_name}",
+        )
+        return
+
+    # 如果虛擬環境資料夾存在，使用原本的方式
     deactivate_script = current_venv / "bin" / "activate"
     os.execl(
         shell,
