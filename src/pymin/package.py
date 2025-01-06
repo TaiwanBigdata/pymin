@@ -464,39 +464,62 @@ class PackageManager:
                 not in {normalize_package_name(d) for d in used_deps}
             }
 
-            # First remove the main package
-            result = subprocess.run(
-                ["pip", "uninstall", "-y", package_to_remove],
-                capture_output=True,
-                text=True,
+            main_status = (
+                f"[yellow]Removing [cyan]{package_to_remove}[/cyan]..."
             )
-            if result.returncode != 0:
-                console.print(
-                    f"[red]Failed to uninstall {package_to_remove}:[/red]\n{result.stderr}"
+            with console.status(main_status, spinner="dots") as status:
+                # First remove the main package
+                process = subprocess.Popen(
+                    ["pip", "uninstall", "-y", package_to_remove],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,
+                    universal_newlines=True,
                 )
-                return False
 
-            # Then remove unused dependencies
-            if deps_to_remove:
-                console.print(
-                    f"\n[yellow]Removing unused dependencies:[/yellow]"
-                )
-                for dep in sorted(deps_to_remove):
-                    console.print(f"  • Removing [cyan]{dep}[/cyan]")
-                    try:
-                        result = subprocess.run(
-                            ["pip", "uninstall", "-y", dep],
-                            capture_output=True,
-                            text=True,
+                while True:
+                    output = process.stdout.readline()
+                    if output == "" and process.poll() is not None:
+                        break
+
+                _, stderr = process.communicate()
+                if process.returncode != 0:
+                    console.print(
+                        f"[red]Failed to uninstall {package_to_remove}:[/red]\n{stderr}"
+                    )
+                    return False
+
+                # Then remove unused dependencies
+                if deps_to_remove:
+                    for dep in sorted(deps_to_remove):
+                        status.update(
+                            f"{main_status}\n[dim]Removing dependency: {dep}[/dim]"
                         )
-                        if result.returncode != 0:
-                            console.print(
-                                f"[yellow]Warning: Failed to remove dependency {dep}:[/yellow]\n{result.stderr}"
+                        try:
+                            process = subprocess.Popen(
+                                ["pip", "uninstall", "-y", dep],
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,
+                                text=True,
+                                bufsize=1,
+                                universal_newlines=True,
                             )
-                    except Exception as e:
-                        console.print(
-                            f"[yellow]Warning: Error removing dependency {dep}:[/yellow]\n{str(e)}"
-                        )
+
+                            while True:
+                                output = process.stdout.readline()
+                                if output == "" and process.poll() is not None:
+                                    break
+
+                            _, stderr = process.communicate()
+                            if process.returncode != 0:
+                                console.print(
+                                    f"[yellow]Warning: Failed to remove dependency {dep}:[/yellow]\n{stderr}"
+                                )
+                        except Exception as e:
+                            console.print(
+                                f"[yellow]Warning: Error removing dependency {dep}:[/yellow]\n{str(e)}"
+                            )
 
             del packages[package_to_remove]
             self._write_requirements(packages)

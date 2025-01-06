@@ -429,20 +429,31 @@ def deactivate():
 
 
 @cli.command()
-@click.argument("package")
-@click.option("--version", "-v", help="Specific version to install")
-def add(package: str, version: Optional[str]):
-    """Add a package to requirements.txt and install it"""
+@click.argument("packages", nargs=-1, required=True)
+@click.option(
+    "--version",
+    "-v",
+    help="Specific version to install (only works with single package)",
+)
+def add(packages, version: Optional[str]):
+    """Add packages to requirements.txt and install them"""
     manager = PackageManager()
-    manager.add(package, version)
+    if version and len(packages) > 1:
+        console.print(
+            "[yellow]Warning: Version option is ignored when installing multiple packages[/yellow]"
+        )
+        version = None
+    for package in packages:
+        manager.add(package, version)
 
 
 @cli.command()
-@click.argument("package")
-def remove(package: str):
-    """Remove a package from requirements.txt and uninstall it"""
+@click.argument("packages", nargs=-1, required=True)
+def remove(packages):
+    """Remove packages from requirements.txt and uninstall them"""
     manager = PackageManager()
-    manager.remove(package)
+    for package in packages:
+        manager.remove(package)
 
 
 # Add 'rm' as an alias for 'remove'
