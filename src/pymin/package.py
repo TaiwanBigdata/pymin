@@ -387,14 +387,11 @@ class PackageManager:
             # Get system packages to exclude
             system_pkgs = get_system_packages()
 
-            # Get all installed packages except system packages
+            # Get all installed packages
             for dist in importlib.metadata.distributions():
                 name = dist.metadata["Name"]
-                # Skip system packages and development package
-                if (
-                    normalize_package_name(name) not in system_pkgs
-                    and normalize_package_name(name) != "pymin"
-                ):
+                # Skip development package
+                if normalize_package_name(name) != "pymin":
                     packages[name] = dist.version
         except Exception as e:
             console.print(
