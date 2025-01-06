@@ -16,7 +16,7 @@ from pathlib import Path
 import sys
 from .package import PackageManager
 from typing import Optional
-from .utils import get_current_shell
+from .utils import get_current_shell, get_environment_display_name
 from rich.markup import escape
 
 # Force color output
@@ -43,13 +43,6 @@ def create_status_table(title: str, rows: list[tuple[str, str, str]]) -> Table:
         table.add_row(*row)
 
     return table
-
-
-def get_environment_display_name(venv_path: Path) -> str:
-    """Get a display name for the virtual environment"""
-    if venv_path.name in ["env", "venv"]:
-        return f"({venv_path.name}) "
-    return ""
 
 
 @click.group()

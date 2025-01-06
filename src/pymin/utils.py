@@ -17,3 +17,10 @@ def get_current_shell():
     shell = os.environ.get("SHELL", "/bin/sh")
     shell_name = Path(shell).name
     return shell, shell_name
+
+
+def get_environment_display_name(venv_path: Path) -> str:
+    """Get a display name for the virtual environment"""
+    if venv_path.name in ["env", "venv"]:
+        return f"({venv_path.name}) "
+    return ""
