@@ -2,7 +2,7 @@
 from pathlib import Path
 import subprocess
 import os
-from typing import Dict, Optional
+from typing import Dict, Optional, Set
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
@@ -11,10 +11,125 @@ from rich.prompt import Confirm
 import sys
 import time
 import importlib
+import importlib.metadata
+from packaging.requirements import Requirement
 from rich.style import Style
 from .utils import get_current_shell
 
 console = Console()
+
+
+def normalize_package_name(name: str) -> str:
+    """
+    Normalize package name by converting both hyphen and underscore to hyphen
+    """
+    return name.lower().replace("_", "-")
+
+
+def get_system_packages() -> Set[str]:
+    """
+    Get a set of known system packages that should be excluded from analysis
+    """
+    return {
+        "pip",
+        "setuptools",
+        "wheel",
+        "pkg-resources",
+        "distribute",
+        "six",
+        "distlib",
+        "packaging",
+        "pyparsing",
+    }
+
+
+def get_package_dependencies(package_name: str) -> Set[str]:
+    """
+    Get direct dependencies for a package
+    """
+    try:
+        dist = importlib.metadata.distribution(package_name)
+        direct_deps = set()
+
+        if dist.requires:
+            for req in dist.requires:
+                try:
+                    req_obj = Requirement(req)
+                    dep_name = normalize_package_name(req_obj.name)
+                    # Only add dependency if it's installed
+                    try:
+                        importlib.metadata.distribution(dep_name)
+                        direct_deps.add(dep_name)
+                    except importlib.metadata.PackageNotFoundError:
+                        continue
+                except:
+                    continue
+
+        return direct_deps
+    except importlib.metadata.PackageNotFoundError:
+        return set()
+
+
+def get_top_level_packages() -> Set[str]:
+    """
+    Get packages that were explicitly installed by user
+    (packages not required by other packages, excluding system packages)
+    """
+    # Get system packages to exclude
+    system_pkgs = get_system_packages()
+
+    # Get all installed packages except system packages
+    all_packages = {
+        normalize_package_name(dist.metadata["Name"])
+        for dist in importlib.metadata.distributions()
+        if normalize_package_name(dist.metadata["Name"]) not in system_pkgs
+    }
+
+    all_dependencies = set()
+    for pkg in all_packages:
+        all_dependencies.update(get_package_dependencies(pkg))
+
+    # Top level packages are those that are not dependencies of any other package
+    return all_packages - all_dependencies
+
+
+def get_venv_site_packages(python_path: str) -> str:
+    """
+    Get site-packages directory from Python interpreter
+    """
+    try:
+        cmd = [
+            python_path,
+            "-c",
+            "import site; print(site.getsitepackages()[0])",
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        return result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        raise ValueError(f"Failed to get site-packages path: {e}")
+
+
+def switch_virtual_env(venv_path: str) -> None:
+    """
+    Switch to specified virtual environment
+    """
+    python_path = os.path.join(venv_path, "bin", "python")
+    if not os.path.exists(python_path):
+        raise ValueError(f"Python executable not found: {python_path}")
+
+    site_packages = get_venv_site_packages(python_path)
+    if not os.path.exists(site_packages):
+        raise ValueError(f"Site-packages directory not found: {site_packages}")
+
+    # Remove all existing site-packages from sys.path
+    sys.path = [p for p in sys.path if "site-packages" not in p]
+
+    # Add the virtual environment's site-packages at the beginning
+    sys.path.insert(0, site_packages)
+
+    # Clear all existing distributions cache
+    importlib.metadata.MetadataPathFinder.invalidate_caches()
+    importlib.reload(importlib.metadata)
 
 
 class PackageManager:
@@ -23,6 +138,16 @@ class PackageManager:
         self.requirements_file = self.project_root / "requirements.txt"
         self._installed_packages_cache = None
         self._dependencies_cache = {}
+        self.venv_dir = self.project_root / "env"
+
+        # Switch to virtual environment if exists
+        if self.venv_dir.exists():
+            try:
+                switch_virtual_env(str(self.venv_dir))
+            except Exception as e:
+                console.print(
+                    f"[yellow]Warning: Failed to switch virtual environment: {e}[/yellow]"
+                )
 
     def _parse_requirements(self) -> Dict[str, str]:
         """Parse requirements.txt into a dictionary of package names and versions"""
@@ -258,38 +383,52 @@ class PackageManager:
 
         packages = {}
         try:
-            result = subprocess.run(
-                ["pip", "list", "--format=json"],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode == 0:
-                import json
+            # Get system packages to exclude
+            system_pkgs = get_system_packages()
 
-                for pkg in json.loads(result.stdout):
-                    packages[pkg["name"]] = pkg["version"]
+            # Get all installed packages except system packages
+            for dist in importlib.metadata.distributions():
+                name = dist.metadata["Name"]
+                # Skip system packages and development package
+                if (
+                    normalize_package_name(name) not in system_pkgs
+                    and normalize_package_name(name) != "pymin"
+                ):
+                    packages[name] = dist.version
         except Exception as e:
-            # Fallback to pkg_resources if pip list fails
             console.print(
-                f"[yellow]Warning: Falling back to pkg_resources: {e}[/yellow]"
+                f"[yellow]Warning: Error getting installed packages: {e}[/yellow]"
             )
-            for dist in pkg_resources.working_set:
-                packages[dist.key] = dist.version
 
         self._installed_packages_cache = packages
         return packages
 
     def _get_package_dependencies(self, package: str) -> Dict[str, list]:
-        """Get package dependencies using pkg_resources"""
+        """Get package dependencies using importlib.metadata"""
         if package in self._dependencies_cache:
             return self._dependencies_cache[package]
 
         try:
-            dist = pkg_resources.get_distribution(package)
+            dist = importlib.metadata.distribution(package)
             deps = {
-                "requires": [req.project_name for req in dist.requires()],
+                "requires": [],
                 "required_by": [],
             }
+
+            if dist.requires:
+                for req in dist.requires:
+                    try:
+                        req_obj = Requirement(req)
+                        dep_name = req_obj.name
+                        # Only add dependency if it's installed
+                        try:
+                            importlib.metadata.distribution(dep_name)
+                            deps["requires"].append(dep_name)
+                        except importlib.metadata.PackageNotFoundError:
+                            continue
+                    except:
+                        continue
+
             self._dependencies_cache[package] = deps
             return deps
         except Exception:
@@ -299,7 +438,9 @@ class PackageManager:
 
     def _get_all_main_packages(self) -> Dict[str, str]:
         """Get all installed main packages (not dependencies) and their versions"""
-        installed = self._get_all_installed_packages()
+        installed = (
+            self._get_all_installed_packages()
+        )  # This already filters out pymin
         main_packages = {}
 
         # First, add all packages from requirements.txt
@@ -307,107 +448,63 @@ class PackageManager:
         for pkg in req_packages:
             main_packages[pkg] = installed.get(pkg, "")
 
-        # Get directly installed packages using pip
+        # Get top level packages using importlib.metadata
         try:
-            result = subprocess.run(
-                ["pip", "list", "--not-required", "--format=json"],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode == 0:
-                import json
+            # Get all installed packages except system packages and pymin
+            all_packages = {
+                normalize_package_name(dist.metadata["Name"]): dist.version
+                for dist in importlib.metadata.distributions()
+                if normalize_package_name(dist.metadata["Name"])
+                not in get_system_packages()
+                and normalize_package_name(dist.metadata["Name"]) != "pymin"
+            }
 
-                for pkg in json.loads(result.stdout):
-                    name = pkg["name"]
-                    # Skip system packages
-                    if name.lower() in (
-                        "pip",
-                        "setuptools",
-                        "wheel",
-                    ) or name.startswith(("pip-", "setuptools-", "wheel-")):
-                        continue
-                    # Add if not already in main_packages
-                    if name not in main_packages:
-                        main_packages[name] = pkg["version"]
+            all_dependencies = set()
+            for pkg in all_packages:
+                all_dependencies.update(get_package_dependencies(pkg))
+
+            # Add packages that are not dependencies
+            for name, version in all_packages.items():
+                if name not in main_packages and name not in all_dependencies:
+                    main_packages[name] = version
+
         except Exception as e:
-            # If pip list fails, try to get non-dependency packages using pkg_resources
-            try:
-                # Get all dependencies
-                all_deps = set()
-                for dist in pkg_resources.working_set:
-                    if not (
-                        dist.key.lower() in ("pip", "setuptools", "wheel")
-                        or dist.key.startswith(
-                            ("pip-", "setuptools-", "wheel-")
-                        )
-                    ):
-                        for req in dist.requires():
-                            all_deps.add(req.project_name)
-
-                # Add packages that are not dependencies
-                for dist in pkg_resources.working_set:
-                    name = dist.key
-                    if (
-                        name not in main_packages
-                        and name not in all_deps
-                        and not (
-                            name.lower() in ("pip", "setuptools", "wheel")
-                            or name.startswith(
-                                ("pip-", "setuptools-", "wheel-")
-                            )
-                        )
-                    ):
-                        main_packages[name] = dist.version
-            except Exception as e2:
-                console.print(
-                    f"[yellow]Warning: Could not get direct dependencies: {e2}[/yellow]"
-                )
+            console.print(
+                f"[yellow]Warning: Could not get direct dependencies: {e}[/yellow]"
+            )
 
         return main_packages
 
     def _get_original_package_name(self, name: str) -> str:
-        """Get original package name from pip list"""
+        """Get original package name from installed distributions"""
         try:
-            result = subprocess.run(
-                ["pip", "list", "--format=json"],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode == 0:
-                import json
-
-                for pkg in json.loads(result.stdout):
-                    if pkg["name"].lower() == name.lower():
-                        return pkg["name"]
+            normalized_name = normalize_package_name(name)
+            for dist in importlib.metadata.distributions():
+                if (
+                    normalize_package_name(dist.metadata["Name"])
+                    == normalized_name
+                ):
+                    return dist.metadata["Name"]
         except Exception:
             pass
         return name
 
     def _normalize_package_name(self, name: str) -> str:
-        """Normalize package name for comparison (convert to lowercase and replace hyphens with underscores)"""
-        return name.lower().replace("-", "_")
+        """Normalize package name for comparison"""
+        return normalize_package_name(name)
 
     def _get_canonical_package_name(self, name: str) -> str:
-        """Get the canonical package name from pip list"""
-        normalized_name = self._normalize_package_name(name)
+        """Get the canonical package name from installed distributions"""
         try:
+            normalized_name = normalize_package_name(name)
             if self._installed_packages_cache is None:
-                result = subprocess.run(
-                    ["pip", "list", "--format=json"],
-                    capture_output=True,
-                    text=True,
+                self._installed_packages_cache = (
+                    self._get_all_installed_packages()
                 )
-                if result.returncode == 0:
-                    import json
-
-                    self._installed_packages_cache = {
-                        pkg["name"]: pkg["version"]
-                        for pkg in json.loads(result.stdout)
-                    }
 
             # Find the package name with correct casing and format
             for pkg_name in self._installed_packages_cache:
-                if self._normalize_package_name(pkg_name) == normalized_name:
+                if normalize_package_name(pkg_name) == normalized_name:
                     return pkg_name
         except Exception:
             pass
@@ -418,48 +515,37 @@ class PackageManager:
         if seen is None:
             seen = set()
 
-        normalized_package = self._normalize_package_name(package)
-        if normalized_package in {
-            self._normalize_package_name(p) for p in seen
-        }:
-            return {}  # Prevent circular dependencies
+        normalized_package = normalize_package_name(package)
+
+        # First check if the package itself is installed
+        try:
+            dist = importlib.metadata.distribution(normalized_package)
+            version = dist.version
+        except importlib.metadata.PackageNotFoundError:
+            return {}  # Return empty dict if package is not installed
+
+        if normalized_package in {normalize_package_name(p) for p in seen}:
+            return {
+                "circular": True,
+                "version": version,
+            }  # Include version even for circular dependencies
 
         seen.add(package)
-        tree = {}
+        tree = {"version": version}  # Add version to the tree node
 
         try:
-            # Get dependencies using pip show
-            result = subprocess.run(
-                ["pip", "show", package],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode == 0:
-                # Parse dependencies from pip show output
-                for line in result.stdout.split("\n"):
-                    if line.startswith("Requires:"):
-                        deps = [
-                            dep.strip()
-                            for dep in line.replace("Requires:", "")
-                            .strip()
-                            .split(",")
-                            if dep.strip()
-                        ]
-                        for dep in deps:
-                            normalized_dep = self._normalize_package_name(dep)
-                            if normalized_dep not in {
-                                self._normalize_package_name(p) for p in seen
-                            }:
-                                # Get canonical package name
-                                canonical_name = (
-                                    self._get_canonical_package_name(dep)
-                                )
-                                tree[canonical_name] = (
-                                    self._build_dependency_tree(
-                                        canonical_name, seen
-                                    )
-                                )
-                        break
+            deps = get_package_dependencies(
+                package
+            )  # This already filters uninstalled packages
+            for dep in deps:
+                canonical_name = self._get_canonical_package_name(dep)
+                if normalize_package_name(canonical_name) not in {
+                    normalize_package_name(p) for p in seen
+                }:
+                    # Recursively build tree for installed dependencies
+                    subtree = self._build_dependency_tree(canonical_name, seen)
+                    if subtree:  # Only add if the dependency exists
+                        tree[canonical_name] = subtree
         except Exception:
             pass
 
@@ -537,7 +623,9 @@ class PackageManager:
             return self.fix_packages(auto_fix)
 
         req_packages = self._parse_requirements()
-        installed_packages = self._get_all_installed_packages()
+        installed_packages = (
+            self._get_all_installed_packages()
+        )  # This already filters out pymin
 
         # Convert package names to canonical form
         req_packages = {
@@ -551,18 +639,15 @@ class PackageManager:
 
         # Get main packages
         if show_deps:
-            packages_to_show = self._get_all_main_packages()
+            packages_to_show = (
+                self._get_all_main_packages()
+            )  # This already filters out pymin
         elif show_all:
-            packages_to_show = {
-                name: version
-                for name, version in installed_packages.items()
-                if not (
-                    name.lower() in ("pip", "setuptools", "wheel")
-                    or name.startswith(("pip-", "setuptools-", "wheel-"))
-                )
-            }
+            packages_to_show = installed_packages  # This already filters out pymin and system packages
         else:
-            packages_to_show = self._get_all_main_packages()
+            packages_to_show = (
+                self._get_all_main_packages()
+            )  # This already filters out pymin
 
         # Convert packages_to_show to canonical form
         packages_to_show = {
@@ -621,7 +706,7 @@ class PackageManager:
                     ) -> None:
                         # Get package information
                         pkg_required = req_packages.get(pkg, "")
-                        pkg_installed = installed_packages.get(pkg)
+                        pkg_installed = tree.get("version") if tree else None
                         pkg_status = self._get_package_status(
                             pkg, pkg_required, pkg_installed
                         )
@@ -662,15 +747,12 @@ class PackageManager:
                             deps = [
                                 (k, v)
                                 for k, v in sorted(tree.items())
-                                if k != "circular"
+                                if k not in ("circular", "version")
                             ]
                             for i, (dep, subtree) in enumerate(deps):
                                 new_prefix = prefix + (
                                     "    " if last_sibling else "│   "
                                 )
-                                # Get sub-dependencies if not already in tree
-                                if not subtree and dep in installed_packages:
-                                    subtree = self._build_dependency_tree(dep)
                                 format_tree(
                                     dep,
                                     subtree,
@@ -682,6 +764,35 @@ class PackageManager:
                     format_tree(name, trees[name])
                     if name != sorted(trees.keys())[-1]:
                         table.add_row("", "", "", "")
+
+            # Count total dependencies
+            total_deps = 0
+            direct_deps = 0
+            for tree in trees.values():
+
+                def count_deps(tree_node):
+                    if tree_node.get("circular"):
+                        return 0
+                    return len(
+                        [
+                            k
+                            for k in tree_node.keys()
+                            if k not in ("circular", "version")
+                        ]
+                    )
+
+                def count_all_deps(tree_node):
+                    if tree_node.get("circular"):
+                        return 0
+                    count = 0
+                    for k, v in tree_node.items():
+                        if k not in ("circular", "version"):
+                            count += 1 + count_all_deps(v)
+                    return count
+
+                direct_deps += count_deps(tree)
+                total_deps += count_all_deps(tree)
+
         else:
             table.add_column("Package", style="")
             table.add_column("Required", style="blue")
@@ -719,11 +830,15 @@ class PackageManager:
 
         # 顯示統計摘要
         total_packages = len(packages_to_show)
-        required_count = sum(
-            1 for name in packages_to_show if name in req_packages
+        missing_count = sum(
+            1
+            for name in packages_to_show
+            if name in req_packages and name not in installed_packages
         )
-        installed_count = sum(
-            1 for name in packages_to_show if name in installed_packages
+        unlisted_count = sum(
+            1
+            for name in packages_to_show
+            if name not in req_packages and name in installed_packages
         )
         mismatch_count = sum(
             1
@@ -732,23 +847,45 @@ class PackageManager:
             and name in installed_packages
             and req_packages[name].lstrip("==") != installed_packages[name]
         )
+        installed_count = sum(
+            1
+            for name in packages_to_show
+            if name in installed_packages
+            and name in req_packages
+            and req_packages[name].lstrip("==") == installed_packages[name]
+        )
 
         console.print("\nSummary:")
         console.print(f"  • Total Packages: [cyan]{total_packages}[/cyan]")
-        if required_count:
-            console.print(
-                f"  • In requirements.txt: [blue]{required_count}[/blue]"
-            )
         if installed_count:
-            console.print(f"  • Installed: [green]{installed_count}[/green]")
+            console.print(
+                f"  • Installed & Matched (✓): [green]{installed_count}[/green]"
+            )
         if mismatch_count:
             console.print(
-                f"  • Version Mismatches: [yellow]{mismatch_count}[/yellow]"
+                f"  • Version Mismatches (≠): [yellow]{mismatch_count}[/yellow]"
+            )
+        if missing_count:
+            console.print(f"  • Not Installed (✗): [red]{missing_count}[/red]")
+        if unlisted_count:
+            console.print(
+                f"  • Not in requirements.txt (△): [blue]{unlisted_count}[/blue]"
+            )
+        if show_deps and total_deps:
+            console.print(
+                f"  • Total Dependencies: [dim]{total_deps}[/dim] (Direct: [dim]{direct_deps}[/dim])"
             )
 
-        if mismatch_count or (required_count != installed_count):
+        if mismatch_count or missing_count:
             console.print(
                 "\n[dim]Tip: Run 'pm list --fix' to resolve package inconsistencies[/dim]"
+            )
+            python_path = os.path.join(self.venv_dir, "bin", "python")
+            site_packages = get_venv_site_packages(python_path)
+            console.print(
+                f"\n[dim]Environment Information:\n"
+                f"  Python Executable: {self._format_path_highlight(python_path)}\n"
+                f"  Site Packages: {self._format_path_highlight(site_packages)}[/dim]"
             )
 
     def fix_packages(self, auto_fix: bool = False) -> bool:
@@ -888,3 +1025,47 @@ class PackageManager:
         if fixed:
             console.print("\n[green]✓ All issues have been fixed[/green]")
         return fixed
+
+    def _format_path_highlight(self, full_path: str) -> str:
+        """Format path to highlight the important parts"""
+        try:
+            # Convert to Path object for easier manipulation
+            path = Path(full_path)
+            # Get the home directory
+            home = Path.home()
+
+            if str(path).startswith(str(home)):
+                # If path starts with home directory, replace with ~
+                path = Path(str(path).replace(str(home), "~", 1))
+                base = ""
+            else:
+                # For other paths, keep the root
+                base = path.anchor
+                path = path.relative_to(path.anchor)
+
+            # Split the path parts
+            parts = list(path.parts)
+
+            # Get virtual env path from self.venv_dir
+            venv = self.venv_dir
+            if str(venv).startswith(str(home)):
+                venv = Path(str(venv).replace(str(home), "~", 1))
+            else:
+                venv = venv.relative_to(venv.anchor)
+
+            # Get the virtual env directory name
+            venv_parts = list(venv.parts)
+
+            # Find where the virtual env path starts in our target path
+            for i in range(len(parts)):
+                if "/".join(parts[i:]).startswith("/".join(venv_parts)):
+                    # Highlight from virtual env onwards with cyan and italic
+                    parts = parts[:i] + [
+                        f"[cyan italic]{'/'.join(parts[i:])}[/cyan italic]"
+                    ]
+                    break
+
+            return base + "/".join(parts)
+        except Exception:
+            # Fallback to original path if any error occurs
+            return full_path

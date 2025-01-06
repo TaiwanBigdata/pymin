@@ -20,7 +20,7 @@ class VenvManager:
     def _check_dependencies(self) -> None:
         """Check if required dependencies are installed"""
         try:
-            # 檢查必要的依賴是否安裝
+            # Check if required dependencies are installed
             import click
             import rich
             import requests
@@ -33,7 +33,7 @@ class VenvManager:
     def create(self, name: str) -> Tuple[bool, str]:
         """Create a new project environment"""
         try:
-            # 建立專案目錄
+            # Create project directory
             project_path = Path(name)
             if project_path.exists():
                 return False, f"Project directory '{name}' already exists"
