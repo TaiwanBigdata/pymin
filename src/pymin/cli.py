@@ -449,11 +449,16 @@ def add(packages, version: Optional[str]):
 
 @cli.command()
 @click.argument("packages", nargs=-1, required=True)
-def remove(packages):
+@click.option(
+    "-y",
+    is_flag=True,
+    help="Automatically confirm all prompts",
+)
+def remove(packages, y: bool):
     """Remove packages from requirements.txt and uninstall them"""
     manager = PackageManager()
     for package in packages:
-        manager.remove(package)
+        manager.remove(package, auto_confirm=y)
 
 
 # Add 'rm' as an alias for 'remove'
@@ -463,28 +468,38 @@ cli.add_command(remove, "rm")
 @cli.command(name="list")
 @click.option("-a", "--all", is_flag=True, help="List all installed packages")
 @click.option("-t", "--tree", is_flag=True, help="Show dependency tree")
-@click.option("-f", "--fix", is_flag=True, help="Fix package inconsistencies")
-@click.option(
-    "-F",
-    "--auto-fix",
-    is_flag=True,
-    help="Automatically fix package inconsistencies without confirmation",
-)
-def list_packages(all, tree, fix, auto_fix):
+def list_packages(all, tree):
     """List installed packages and their dependencies"""
     pm = PackageManager()
-    pm.list_packages(show_all=all, show_deps=tree, fix=fix, auto_fix=auto_fix)
+    pm.list_packages(show_all=all, show_deps=tree)
 
 
 @cli.command()
-def update():
+@click.option(
+    "-y",
+    is_flag=True,
+    help="Automatically confirm all prompts",
+)
+def update(y: bool):
     """Update all packages to their latest versions"""
     manager = PackageManager()
-    manager.update_all()
+    manager.update_all(auto_confirm=y)
 
 
 # Add 'up' as an alias for 'update'
 cli.add_command(update, "up")
+
+
+@cli.command()
+@click.option(
+    "-y",
+    is_flag=True,
+    help="Automatically confirm all prompts",
+)
+def fix(y: bool):
+    """Fix package inconsistencies"""
+    pm = PackageManager()
+    pm.fix_packages(auto_confirm=y)
 
 
 if __name__ == "__main__":

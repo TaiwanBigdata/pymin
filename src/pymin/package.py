@@ -202,10 +202,10 @@ class PackageManager:
             except pkg_resources.DistributionNotFound:
                 return None
 
-    def _check_pip_upgrade(self, stderr: str):
+    def _check_pip_upgrade(self, stderr: str, auto_confirm: bool = False):
         """Check if pip needs upgrade and handle it"""
         if "new release of pip is available" in stderr:
-            if Confirm.ask(
+            if auto_confirm or Confirm.ask(
                 "[yellow]A new version of pip is available. Do you want to upgrade?[/yellow]"
             ):
                 console.print("[yellow]Upgrading pip...[/yellow]")
@@ -251,7 +251,12 @@ class PackageManager:
                     return version
         return None
 
-    def add(self, package: str, version: Optional[str] = None) -> bool:
+    def add(
+        self,
+        package: str,
+        version: Optional[str] = None,
+        auto_confirm: bool = False,
+    ) -> bool:
         """Add a package to requirements.txt and install it"""
         if not Path(os.environ.get("VIRTUAL_ENV", "")).exists():
             console.print(
@@ -272,7 +277,10 @@ class PackageManager:
                 ["pip", "--version"], capture_output=True, text=True
             )
             if result.stderr:
-                self._check_pip_upgrade(result.stderr)
+                if auto_confirm:
+                    self._check_pip_upgrade(result.stderr, auto_confirm=True)
+                else:
+                    self._check_pip_upgrade(result.stderr)
 
             # Check if package is already installed
             pre_installed_version = self._get_installed_version(package)
@@ -412,7 +420,7 @@ class PackageManager:
 
         return all_deps
 
-    def remove(self, package: str) -> bool:
+    def remove(self, package: str, auto_confirm: bool = False) -> bool:
         """Remove a package from requirements.txt and uninstall it"""
         if not Path(os.environ.get("VIRTUAL_ENV", "")).exists():
             console.print("[red]No active virtual environment found.[/red]")
@@ -464,6 +472,18 @@ class PackageManager:
                 not in {normalize_package_name(d) for d in used_deps}
             }
 
+            # Show what will be removed
+            if deps_to_remove and not auto_confirm:
+                console.print(
+                    "\n[yellow]The following dependencies are not used by other packages and will also be removed:[/yellow]"
+                )
+                console.print(
+                    f"[cyan]{', '.join(sorted(deps_to_remove))}[/cyan]"
+                )
+                console.print()
+                if not Confirm.ask("Do you want to continue?"):
+                    return False
+
             main_status = (
                 f"[yellow]Removing [cyan]{package_to_remove}[/cyan]..."
             )
@@ -476,9 +496,10 @@ class PackageManager:
                     status.update(
                         f"{main_status}\n[dim]Will also remove: {', '.join(sorted(deps_to_remove))}[/dim]"
                     )
-                    time.sleep(
-                        1
-                    )  # Give user a moment to see what will be removed
+                    if not auto_confirm:
+                        time.sleep(
+                            1
+                        )  # Give user a moment to see what will be removed
 
                 # Remove all packages in one command
                 process = subprocess.Popen(
@@ -729,8 +750,6 @@ class PackageManager:
         self,
         show_all: bool = False,
         show_deps: bool = False,
-        fix: bool = False,
-        auto_fix: bool = False,
     ):
         """List packages in requirements.txt and/or all installed packages"""
         # Check virtual environment status
@@ -752,10 +771,6 @@ class PackageManager:
                     cmd_args.append("-a")
                 if show_deps:
                     cmd_args.append("-t")
-                if fix:
-                    cmd_args.append("-f")
-                if auto_fix:
-                    cmd_args.append("-F")
                 cmd = " ".join(cmd_args)
 
                 if Confirm.ask(
@@ -776,9 +791,6 @@ class PackageManager:
                 )
                 console.print("[yellow]Run: pm venv[/yellow]")
                 return
-
-        if fix or auto_fix:
-            return self.fix_packages(auto_fix)
 
         req_packages = self._parse_requirements()
         installed_packages = (
@@ -1036,7 +1048,7 @@ class PackageManager:
 
         if mismatch_count or missing_count:
             console.print(
-                "\n[dim]Tip: Run 'pm list --fix' to resolve package inconsistencies[/dim]"
+                "\n[dim]Tip: Run 'pm fix' to resolve package inconsistencies[/dim]"
             )
             python_path = os.path.join(self.venv_dir, "bin", "python")
             site_packages = get_venv_site_packages(python_path)
@@ -1046,7 +1058,7 @@ class PackageManager:
                 f"  Site Packages: {self._format_path_highlight(site_packages)}[/dim]"
             )
 
-    def fix_packages(self, auto_fix: bool = False) -> bool:
+    def fix_packages(self, auto_confirm: bool = False) -> bool:
         """Fix package inconsistencies:
         1. Install missing packages from requirements.txt
         2. Add installed packages to requirements.txt
@@ -1171,7 +1183,7 @@ class PackageManager:
         console.print("\n")
 
         # Auto-fix or ask for confirmation
-        if not auto_fix:
+        if not auto_confirm:
             if not Confirm.ask("Do you want to fix these issues?"):
                 return False
         else:
@@ -1214,7 +1226,7 @@ class PackageManager:
                         console.print(
                             f"\n[red]Failed to update {name}:[/red]\n{stderr}"
                         )
-                        if not auto_fix:
+                        if not auto_confirm:
                             if not Confirm.ask(
                                 "Continue with remaining updates?"
                             ):
@@ -1225,7 +1237,7 @@ class PackageManager:
                     console.print(
                         f"\n[red]Error updating {name}:[/red]\n{str(e)}"
                     )
-                    if not auto_fix:
+                    if not auto_confirm:
                         if not Confirm.ask("Continue with remaining updates?"):
                             return False
 
@@ -1261,7 +1273,7 @@ class PackageManager:
                         console.print(
                             f"\n[red]Failed to install {name}:[/red]\n{stderr}"
                         )
-                        if not auto_fix:
+                        if not auto_confirm:
                             if not Confirm.ask(
                                 "Continue with remaining installations?"
                             ):
@@ -1272,7 +1284,7 @@ class PackageManager:
                     console.print(
                         f"\n[red]Error installing {name}:[/red]\n{str(e)}"
                     )
-                    if not auto_fix:
+                    if not auto_confirm:
                         if not Confirm.ask(
                             "Continue with remaining installations?"
                         ):
@@ -1341,7 +1353,7 @@ class PackageManager:
             # Fallback to original path if any error occurs
             return full_path
 
-    def update_all(self) -> bool:
+    def update_all(self, auto_confirm: bool = False) -> bool:
         """Update all packages to their latest versions"""
         if not Path(os.environ.get("VIRTUAL_ENV", "")).exists():
             console.print("[red]No active virtual environment found.[/red]")
@@ -1363,7 +1375,12 @@ class PackageManager:
                     ["pip", "--version"], capture_output=True, text=True
                 )
                 if result.stderr:
-                    self._check_pip_upgrade(result.stderr)
+                    if auto_confirm:
+                        self._check_pip_upgrade(
+                            result.stderr, auto_confirm=True
+                        )
+                    else:
+                        self._check_pip_upgrade(result.stderr)
 
                 # Get list of outdated packages
                 process = subprocess.run(
@@ -1434,7 +1451,9 @@ class PackageManager:
             console.print("\n")
 
             # Ask for confirmation
-            if not Confirm.ask("Do you want to update these packages?"):
+            if not auto_confirm and not Confirm.ask(
+                "Do you want to update these packages?"
+            ):
                 return False
 
             total_packages = len(outdated)
