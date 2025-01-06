@@ -15,6 +15,7 @@ import importlib.metadata
 from packaging.requirements import Requirement
 from rich.style import Style
 from .utils import get_current_shell
+from rich.panel import Panel
 
 console = Console()
 
@@ -935,92 +936,171 @@ class PackageManager:
 
         # Display issues
         if not (missing_packages or unlisted_packages or version_mismatches):
-            console.print("[green]No package inconsistencies found[/green]")
+            console.print("[green]✓ No package inconsistencies found[/green]")
             return True
 
+        # Build the panel content
+        text = Text()
+
         if missing_packages:
-            console.print("\n[red]Missing packages:[/red]")
+            text.append(
+                "\nNot Installed (✗):\n", style=Style(color="red", bold=True)
+            )
             for name, version in missing_packages:
-                text = Text()
                 text.append("  ", style=Style(color="red"))
                 text.append("✗", style=Style(color="red"))
                 text.append(" ")
-                text.append(f"{name}=={version}", style=Style())
-                console.print(text)
-
-        if unlisted_packages:
-            console.print("\nPackages not in requirements.txt:")
-            for name, version in unlisted_packages:
-                text = Text()
-                text.append("  ", style=Style(color="blue"))
-                text.append("△", style=Style(color="blue"))
-                text.append(" ")
-                text.append(f"{name}=={version}", style=Style())
-                console.print(text)
+                text.append(name, style=Style(color="white"))
+                text.append("==", style=Style(dim=True))
+                text.append(version, style=Style(color="white"))
+                text.append("\n")
 
         if version_mismatches:
-            console.print("\nVersion mismatches:")
+            text.append(
+                "\nVersion Mismatches (≠):\n",
+                style=Style(color="yellow", bold=True),
+            )
             for name, req_version, inst_version in version_mismatches:
-                text = Text()
                 text.append("  ", style=Style(color="yellow"))
                 text.append("≠", style=Style(color="yellow"))
                 text.append(" ")
-                text.append(name, style=Style())
-                text.append(": ")
+                text.append(name, style=Style(color="white"))
+                text.append(": ", style=Style(dim=True))
                 text.append(inst_version, style=Style(color="red"))
-                text.append(" (installed)")
-                text.append(" → ")
+                text.append(" (installed)", style=Style(dim=True))
+                text.append(" → ", style=Style(dim=True))
                 text.append(req_version, style=Style(color="green"))
-                text.append(" (required)")
-                console.print(text)
+                text.append(" (required)", style=Style(dim=True))
+                text.append("\n")
+
+        if unlisted_packages:
+            text.append(
+                "\nNot in requirements.txt (△):\n",
+                style=Style(color="blue", bold=True),
+            )
+            for name, version in unlisted_packages:
+                text.append("  ", style=Style(color="blue"))
+                text.append("△", style=Style(color="blue"))
+                text.append(" ")
+                text.append(name, style=Style(color="white"))
+                text.append("==", style=Style(dim=True))
+                text.append(version, style=Style(color="white"))
+                text.append("\n")
 
         # Show summary of actions
-        console.print("\nSummary of actions to be taken:")
-        if missing_packages:
-            console.print(
-                f"  • Install {len(missing_packages)} missing package(s)"
-            )
-        if version_mismatches:
-            console.print(
-                f"  • Update {len(version_mismatches)} package version(s)"
-            )
-        if unlisted_packages:
-            console.print(
-                f"  • Add {len(unlisted_packages)} package(s) to requirements.txt"
-            )
+        text.append("\nActions to be taken:\n", style=Style(bold=True))
+        if missing_count := len(missing_packages):
+            text.append("  • Install ")
+            text.append(str(missing_count), style=Style(color="red"))
+            text.append(" missing package(s)\n")
+        if mismatch_count := len(version_mismatches):
+            text.append("  • Update ")
+            text.append(str(mismatch_count), style=Style(color="yellow"))
+            text.append(" package version(s)\n")
+        if unlisted_count := len(unlisted_packages):
+            text.append("  • Add ")
+            text.append(str(unlisted_count), style=Style(color="blue"))
+            text.append(" package(s) to requirements.txt\n")
+
+        # Display the panel
+        panel = Panel.fit(
+            text,
+            title="Package Inconsistencies",
+            title_align="left",
+            border_style="bright_blue",
+        )
+        console.print("\n")
+        console.print(panel)
+        console.print("\n")
 
         # Auto-fix or ask for confirmation
         if not auto_fix:
-            if not Confirm.ask("\nDo you want to fix these issues?"):
+            if not Confirm.ask("Do you want to fix these issues?"):
                 return False
+        else:
+            console.print(
+                "[yellow]Auto-fixing package inconsistencies...[/yellow]"
+            )
 
         with console.status(
             "[yellow]Fixing package inconsistencies...[/yellow]", spinner="dots"
         ) as status:
+            # Fix version mismatches first (to avoid dependency conflicts)
+            for name, req_version, _ in version_mismatches:
+                status.update(
+                    f"[yellow]Updating [white]{name}[/yellow] to [white]{req_version}[/white]..."
+                )
+                try:
+                    result = subprocess.run(
+                        ["pip", "install", f"{name}=={req_version}"],
+                        capture_output=True,
+                        text=True,
+                    )
+                    if result.returncode != 0:
+                        console.print(
+                            f"\n[red]Failed to update {name}:[/red]\n{result.stderr}"
+                        )
+                        if not auto_fix:
+                            if not Confirm.ask(
+                                "Continue with remaining updates?"
+                            ):
+                                return False
+                    else:
+                        fixed = True
+                except Exception as e:
+                    console.print(
+                        f"\n[red]Error updating {name}:[/red]\n{str(e)}"
+                    )
+                    if not auto_fix:
+                        if not Confirm.ask("Continue with remaining updates?"):
+                            return False
+
             # Fix missing packages
             for name, version in missing_packages:
                 status.update(
-                    f"[yellow]Installing {name}=={version}...[/yellow]"
+                    f"[yellow]Installing [white]{name}[/yellow]==[white]{version}[/white]..."
                 )
-                if self.add(name, version):
-                    fixed = True
-
-            # Fix version mismatches
-            for name, req_version, _ in version_mismatches:
-                status.update(
-                    f"[yellow]Updating {name} to {req_version}...[/yellow]"
-                )
-                if self.add(name, req_version):
-                    fixed = True
+                try:
+                    result = subprocess.run(
+                        ["pip", "install", f"{name}=={version}"],
+                        capture_output=True,
+                        text=True,
+                    )
+                    if result.returncode != 0:
+                        console.print(
+                            f"\n[red]Failed to install {name}:[/red]\n{result.stderr}"
+                        )
+                        if not auto_fix:
+                            if not Confirm.ask(
+                                "Continue with remaining installations?"
+                            ):
+                                return False
+                    else:
+                        fixed = True
+                except Exception as e:
+                    console.print(
+                        f"\n[red]Error installing {name}:[/red]\n{str(e)}"
+                    )
+                    if not auto_fix:
+                        if not Confirm.ask(
+                            "Continue with remaining installations?"
+                        ):
+                            return False
 
             # Add unlisted packages to requirements.txt
             if unlisted_packages:
                 status.update("[yellow]Updating requirements.txt...[/yellow]")
-                packages = self._parse_requirements()
-                for name, version in unlisted_packages:
-                    packages[name] = f"=={version}"
-                self._write_requirements(packages)
-                fixed = True
+                try:
+                    packages = self._parse_requirements()
+                    for name, version in unlisted_packages:
+                        packages[name] = f"=={version}"
+                    self._write_requirements(packages)
+                    fixed = True
+                except Exception as e:
+                    console.print(
+                        f"\n[red]Error updating requirements.txt:[/red]\n{str(e)}"
+                    )
+                    return False
 
         if fixed:
             console.print("\n[green]✓ All issues have been fixed[/green]")
