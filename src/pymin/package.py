@@ -1340,3 +1340,163 @@ class PackageManager:
         except Exception:
             # Fallback to original path if any error occurs
             return full_path
+
+    def update_all(self) -> bool:
+        """Update all packages to their latest versions"""
+        if not Path(os.environ.get("VIRTUAL_ENV", "")).exists():
+            console.print("[red]No active virtual environment found.[/red]")
+            return False
+
+        packages = self._parse_requirements()
+        if not packages:
+            console.print(
+                "[yellow]No packages found in requirements.txt[/yellow]"
+            )
+            return False
+
+        try:
+            with console.status(
+                "[yellow]Checking for updates...[/yellow]", spinner="dots"
+            ) as status:
+                # First check if pip needs upgrade
+                result = subprocess.run(
+                    ["pip", "--version"], capture_output=True, text=True
+                )
+                if result.stderr:
+                    self._check_pip_upgrade(result.stderr)
+
+                # Get list of outdated packages
+                process = subprocess.run(
+                    ["pip", "list", "--outdated", "--format=json"],
+                    capture_output=True,
+                    text=True,
+                )
+
+                if process.returncode != 0:
+                    console.print(
+                        f"[red]Failed to check for updates:[/red]\n{process.stderr}"
+                    )
+                    return False
+
+                import json
+
+                outdated = {
+                    pkg["name"]: pkg["latest_version"]
+                    for pkg in json.loads(process.stdout)
+                    if normalize_package_name(pkg["name"])
+                    not in get_system_packages()
+                    and not normalize_package_name(pkg["name"]).startswith(
+                        ("pip-", "setuptools-", "wheel-")
+                    )
+                    and normalize_package_name(pkg["name"]) != "pymin"
+                    and pkg["name"] in packages
+                }
+
+            if not outdated:
+                console.print("[green]✓ All packages are up to date[/green]")
+                return True
+
+            # Build panel content for outdated packages
+            text = Text()
+            text.append(
+                "\nVersion Mismatches (≠):\n",
+                style=Style(color="yellow", bold=True),
+            )
+            for name, version in outdated.items():
+                current_version = packages[name].lstrip("==")
+                text.append("  ", style=Style(color="yellow"))
+                text.append("≠", style=Style(color="yellow"))
+                text.append(" ")
+                text.append(name, style=Style(color="white"))
+                text.append(": ", style=Style(dim=True))
+                text.append(current_version, style=Style(color="red"))
+                text.append(" (required)", style=Style(dim=True))
+                text.append(" → ", style=Style(dim=True))
+                text.append(version, style=Style(color="green"))
+                text.append(" (new)", style=Style(dim=True))
+                text.append("\n")
+
+            # Add summary
+            text.append("\nActions to be taken:\n", style=Style(bold=True))
+            text.append("  • Update ")
+            text.append(str(len(outdated)), style=Style(color="yellow"))
+            text.append(" package version(s)\n")
+
+            # Display the panel
+            panel = Panel.fit(
+                text,
+                title="Package Updates Available",
+                title_align="left",
+                border_style="bright_blue",
+            )
+            console.print("\n")
+            console.print(panel)
+            console.print("\n")
+
+            # Ask for confirmation
+            if not Confirm.ask("Do you want to update these packages?"):
+                return False
+
+            total_packages = len(outdated)
+            with console.status(
+                "[yellow]Updating packages...[/yellow]", spinner="dots"
+            ) as status:
+                updated_count = 0
+                for i, (name, latest_version) in enumerate(outdated.items(), 1):
+                    main_status = f"[yellow]Updating packages... ({i}/{total_packages})[/yellow]\n[cyan]{name}[/cyan]: {packages[name].lstrip('==')} → [green]{latest_version}[/green]"
+                    status.update(main_status)
+
+                    process = subprocess.Popen(
+                        [
+                            "pip",
+                            "install",
+                            "--upgrade",
+                            f"{name}=={latest_version}",
+                        ],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        bufsize=1,
+                        universal_newlines=True,
+                    )
+
+                    while True:
+                        output = process.stdout.readline()
+                        if output == "" and process.poll() is not None:
+                            break
+                        if output:
+                            # Check for dependency installation messages
+                            if "Collecting" in output:
+                                dep = output.split()[1].strip()
+                                if dep != name:
+                                    status.update(
+                                        f"{main_status}\n[dim]Installing dependency: {dep}[/dim]"
+                                    )
+
+                    _, stderr = process.communicate()
+                    if process.returncode == 0:
+                        # Update requirements.txt with new version
+                        packages[name] = f"=={latest_version}"
+                        updated_count += 1
+                    else:
+                        console.print(
+                            f"\n[yellow]Warning: Failed to update {name}:[/yellow]\n{stderr}"
+                        )
+
+                # Write updated versions to requirements.txt
+                if updated_count > 0:
+                    self._write_requirements(packages)
+                    # Reset caches
+                    self._installed_packages_cache = None
+                    self._dependencies_cache = {}
+                    console.print(
+                        f"\n[green]✓ Updated {updated_count} package(s)[/green]"
+                    )
+                else:
+                    console.print("\n[yellow]No packages were updated[/yellow]")
+
+            return True
+
+        except Exception as e:
+            console.print(f"[red]Error updating packages:[/red]\n{str(e)}")
+            return False

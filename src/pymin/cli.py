@@ -476,5 +476,16 @@ def list_packages(all, tree, fix, auto_fix):
     pm.list_packages(show_all=all, show_deps=tree, fix=fix, auto_fix=auto_fix)
 
 
+@cli.command()
+def update():
+    """Update all packages to their latest versions"""
+    manager = PackageManager()
+    manager.update_all()
+
+
+# Add 'up' as an alias for 'update'
+cli.add_command(update, "up")
+
+
 if __name__ == "__main__":
     cli()
