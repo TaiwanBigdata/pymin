@@ -742,7 +742,7 @@ class PackageManager:
                 console.print(
                     "[yellow]A virtual environment exists but is not activated.[/yellow]"
                 )
-                # 建構原本的指令參數
+                # Construct original command arguments
                 cmd_args = ["pm", "list"]
                 if show_all:
                     cmd_args.append("-a")
@@ -975,7 +975,7 @@ class PackageManager:
                 )
         console.print(table)
 
-        # 顯示統計摘要
+        # Display statistics summary
         total_packages = len(packages_to_show)
         missing_count = sum(
             1
@@ -1027,13 +1027,13 @@ class PackageManager:
             console.print(
                 "\n[dim]Tip: Run 'pm fix' to resolve package inconsistencies[/dim]"
             )
-            python_path = os.path.join(self.venv_dir, "bin", "python")
-            site_packages = get_venv_site_packages(python_path)
-            console.print(
-                f"\n[dim]Environment Information:\n"
-                f"  Python Executable: {self._format_path_highlight(python_path)}\n"
-                f"  Site Packages: {self._format_path_highlight(site_packages)}[/dim]"
-            )
+            # python_path = os.path.join(self.venv_dir, "bin", "python")
+            # site_packages = get_venv_site_packages(python_path)
+            # console.print(
+            #     f"\n[dim]Environment Information:\n"
+            #     f"  Python Executable: {self._format_path_highlight(python_path)}\n"
+            #     f"  Site Packages: {self._format_path_highlight(site_packages)}[/dim]"
+            # )
 
     def fix_packages(self, auto_confirm: bool = False) -> bool:
         """Fix package inconsistencies:

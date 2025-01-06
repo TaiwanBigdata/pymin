@@ -22,8 +22,8 @@ This duality in naming captures both our design philosophy and the real-world pr
 
 A CLI tool for PyPI package management, providing package name validation, virtual environment management, and project information display with rich output formatting.
 
-#### Package Name Validation
-![Package Name Check](https://raw.githubusercontent.com/TaiwanBigdata/pymin/main/docs/images/check_package.png)
+#### Demo
+![Demo](https://raw.githubusercontent.com/TaiwanBigdata/pymin/main/docs/images/demo.gif)
 
 #### Environment Information
 ![Environment Information](https://raw.githubusercontent.com/TaiwanBigdata/pymin/main/docs/images/env_info.png)
@@ -33,29 +33,31 @@ A CLI tool for PyPI package management, providing package name validation, virtu
 content = """
 ## Core Features
 
-1. Package Name Validation
-   - Real-time PyPI availability check
+1. Package Management
+   - Smart dependency handling with tree visualization (`pm list -t`)
+   - Intelligent package removal with unused dependency cleanup (`pm rm`)
+   - Automatic requirements.txt synchronization (`pm fix`)
+   - Version mismatch detection and resolution
+   - Bulk package operations support
+   - One-command package updates (`pm update`/`pm up`)
+
+2. Project Validation
+   - Real-time PyPI name availability check (`pm check`)
    - PEP 503 naming convention validation
-   - Standardized name formatting
-   - Similar package name search
+   - Similar package name detection
+   - Project metadata verification
 
-2. Environment Management
-   - Virtual environment creation and management
-   - Project information display
-   - System environment inspection
-   - Development setup assistance
-
-3. Rich User Interface
-   - Color-coded status indicators
-   - Formatted results presentation
-   - Clear error messages
-   - Intuitive command structure
+3. Environment Management
+   - Virtual environment creation and reset (`pm venv`)
+   - One-command environment activation/deactivation (`pm activate`/`pm deactivate`)
+   - Cross-platform compatibility
+   - Automatic dependency installation
 
 4. Developer Experience
+   - Beautiful tree-style dependency visualization
+   - Color-coded status indicators
+   - Progress tracking with real-time feedback
    - Minimal configuration required
-   - Straightforward workflows
-   - Real-time feedback
-   - Comprehensive environment info
 """
 
 [Installation]
@@ -87,19 +89,64 @@ The CLI provides two command interfaces:
 
 ### Available Commands
 
-| Command    | Description                          |
-|------------|--------------------------------------|
-| check      | Check package name availability      |
-| search     | Search for similar package names     |
-| venv       | Create a virtual environment         |
-| activate   | Show venv activation command         |
-| deactivate | Show venv deactivation command       |
-| info       | Show environment information         |
+| Command    | Description                                |
+|------------|--------------------------------------------|
+| check      | Check package name availability on PyPI    |
+| search     | Search for similar package names           |
+| venv (env) | Create or reset virtual environment        |
+| activate   | Activate virtual environment               |
+| deactivate | Deactivate virtual environment             |
+| info       | Show environment information               |
+| add        | Add packages to requirements.txt           |
+| remove (rm)| Remove packages and unused dependencies    |
+| list       | List installed packages with dependencies  |
+| fix        | Fix package inconsistencies                |
+| update (up)| Update packages to latest versions         |
 
 ### Command Examples
 
-#### Check Package Name
+#### Package Management
 ```bash
+# Add packages
+$ pm add fastapi
+$ pm add fastapi==0.100.0    # Specific version
+$ pm add fastapi sqlalchemy  # Multiple packages
+
+# Remove packages (with unused dependencies)
+$ pm rm fastapi
+$ pm rm -y fastapi  # Auto confirm
+
+# List packages
+$ pm list          # Show main packages
+$ pm list -a       # Show all installed packages with their versions (same as `pip list` command)
+$ pm list -t       # Show dependency tree with version status (✓ ≠ ✗ △)
+
+# Fix inconsistencies
+$ pm fix           # Check and fix requirements.txt
+
+# Update packages
+$ pm update        # Update all packages to latest versions
+$ pm up -y         # Update with auto-confirm
+```
+
+#### Environment Management
+```bash
+# Create virtual environment
+$ pm venv          # Create with default name 'env'
+$ pm venv my_env   # Create with custom name
+$ pm env           # Alias for venv
+
+# Activate/Deactivate
+$ pm activate
+$ pm deactivate
+
+# Show environment info
+$ pm info
+```
+
+#### Project Validation
+```bash
+# Check package name
 $ pm check my-package-name
 ┌─ PyPI Package Name Check Results ─┐
 │ Package Name: my-package-name     │
@@ -108,61 +155,10 @@ $ pm check my-package-name
 │ Available: ✓                      │
 │ Message: Package name available!  │
 └───────────────────────────────────┘
-```
 
-#### Search Similar Names
-```bash
-# Default similarity (80%)
-$ pm search fastapi
-
-# Custom similarity threshold
-$ pm search fastapi --threshold 0.85
-```
-
-#### Create Virtual Environment
-```bash
-# Create with default name 'env'
-$ pm venv
-
-# Create with custom name
-$ pm venv my_env
-```
-
-### Command Details
-
-#### check
-Check if a package name is available on PyPI
-```bash
-pm check NAME
-```
-- `NAME`: Package name to validate (required)
-
-#### search
-Search for similar package names on PyPI
-```bash
-pm search NAME [--threshold VALUE]
-```
-- `NAME`: Package name to search for (required)
-- `--threshold VALUE`: Similarity threshold, 0.0-1.0 (default: 0.8)
-
-#### venv
-Create a virtual environment
-```bash
-pm venv [NAME]
-```
-- `NAME`: Virtual environment name (default: env)
-
-#### activate, deactivate
-Show virtual environment activation/deactivation commands
-```bash
-pm activate
-pm deactivate
-```
-
-#### info
-Display environment information
-```bash
-pm info
+# Search similar names
+$ pm search fastapi           # Default similarity (80%)
+$ pm search fastapi -t 0.85   # Custom threshold
 ```
 """
 
@@ -185,6 +181,7 @@ exclude_patterns = [
    "secrets",
    "build",
    "dist",
+   "docs/",
 ]
 show_files = true
 show_comments = true

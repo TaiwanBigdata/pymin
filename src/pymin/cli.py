@@ -194,7 +194,7 @@ def venv(name):
             if Confirm.ask(
                 "\n[yellow]Found requirements.txt. Do you want to install the dependencies?[/yellow]"
             ):
-                # 先啟動虛擬環境並升級 pip
+                # Activate virtual environment and upgrade pip
                 subprocess.run(
                     [
                         shell,
@@ -204,7 +204,7 @@ def venv(name):
                     check=True,
                 )
 
-                # 在虛擬環境中安裝套件
+                # Install packages in virtual environment
                 os.environ["VIRTUAL_ENV"] = str(venv_path)
                 os.environ["PATH"] = f"{venv_path}/bin:{os.environ['PATH']}"
                 package_manager = PackageManager()
@@ -221,7 +221,7 @@ def venv(name):
                     else:
                         package_manager.add(package)
 
-        # 啟動虛擬環境
+        # Activate virtual environment
         os.execl(
             shell,
             shell_name,
@@ -433,7 +433,7 @@ def deactivate():
     )
     shell, shell_name = get_current_shell()
 
-    # 如果虛擬環境資料夾不存在，直接執行 python -m venv deactivate
+    # If virtual environment folder doesn't exist, directly execute python -m venv deactivate
     if not current_venv.exists():
         os.execl(
             shell,
@@ -443,7 +443,7 @@ def deactivate():
         )
         return
 
-    # 如果虛擬環境資料夾存在，使用原本的方式
+    # If virtual environment folder exists, use the original method
     deactivate_script = current_venv / "bin" / "activate"
     os.execl(
         shell,
@@ -488,6 +488,9 @@ def remove(packages, y: bool):
 
 # Add 'rm' as an alias for 'remove'
 cli.add_command(remove, "rm")
+
+# Add 'env' as an alias for 'venv'
+cli.add_command(venv, "env")
 
 
 @cli.command(name="list")

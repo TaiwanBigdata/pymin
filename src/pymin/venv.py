@@ -40,12 +40,12 @@ class VenvManager:
 
             project_path.mkdir(parents=True)
 
-            # 建立基本檔案結構
+            # Create basic file structure
             (project_path / "src").mkdir()
             (project_path / "tests").mkdir()
             (project_path / "docs").mkdir()
 
-            # 建立 pyproject.toml
+            # Create pyproject.toml
             self._create_pyproject_toml(project_path, name)
 
             return True, f"Project environment created at {project_path}"
