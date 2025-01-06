@@ -468,9 +468,21 @@ class PackageManager:
                 f"[yellow]Removing [cyan]{package_to_remove}[/cyan]..."
             )
             with console.status(main_status, spinner="dots") as status:
-                # First remove the main package
+                # Prepare all packages to remove
+                all_to_remove = [package_to_remove] + sorted(deps_to_remove)
+
+                # Show what will be removed
+                if deps_to_remove:
+                    status.update(
+                        f"{main_status}\n[dim]Will also remove: {', '.join(sorted(deps_to_remove))}[/dim]"
+                    )
+                    time.sleep(
+                        1
+                    )  # Give user a moment to see what will be removed
+
+                # Remove all packages in one command
                 process = subprocess.Popen(
-                    ["pip", "uninstall", "-y", package_to_remove],
+                    ["pip", "uninstall", "-y"] + all_to_remove,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
@@ -482,44 +494,21 @@ class PackageManager:
                     output = process.stdout.readline()
                     if output == "" and process.poll() is not None:
                         break
+                    if output:
+                        # Show uninstall progress
+                        if "Removing" in output:
+                            pkg = output.split()[-1].strip()
+                            if pkg != package_to_remove:
+                                status.update(
+                                    f"{main_status}\n[dim]Removing: {pkg}[/dim]"
+                                )
 
                 _, stderr = process.communicate()
                 if process.returncode != 0:
                     console.print(
-                        f"[red]Failed to uninstall {package_to_remove}:[/red]\n{stderr}"
+                        f"[red]Failed to uninstall packages:[/red]\n{stderr}"
                     )
                     return False
-
-                # Then remove unused dependencies
-                if deps_to_remove:
-                    for dep in sorted(deps_to_remove):
-                        status.update(
-                            f"{main_status}\n[dim]Removing dependency: {dep}[/dim]"
-                        )
-                        try:
-                            process = subprocess.Popen(
-                                ["pip", "uninstall", "-y", dep],
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,
-                                text=True,
-                                bufsize=1,
-                                universal_newlines=True,
-                            )
-
-                            while True:
-                                output = process.stdout.readline()
-                                if output == "" and process.poll() is not None:
-                                    break
-
-                            _, stderr = process.communicate()
-                            if process.returncode != 0:
-                                console.print(
-                                    f"[yellow]Warning: Failed to remove dependency {dep}:[/yellow]\n{stderr}"
-                                )
-                        except Exception as e:
-                            console.print(
-                                f"[yellow]Warning: Error removing dependency {dep}:[/yellow]\n{str(e)}"
-                            )
 
             del packages[package_to_remove]
             self._write_requirements(packages)
