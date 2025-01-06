@@ -354,19 +354,18 @@ def activate(name):
         current_venv = Path(os.environ["VIRTUAL_ENV"])
         current_status = f"[cyan]{get_environment_display_name(current_venv)}{Path(current_venv).parent.name}[/cyan]"
 
-    if Confirm.ask(
-        f"[yellow]Switch environment?[/yellow]\n"
+    console.print(
+        f"[yellow]Switching environment:[/yellow]\n"
         f"  From: {current_status}\n"
         f"  To:   [cyan]{venv_display}{project_name}[/cyan]"
-    ):
-        console.print(f"[green]Activating virtual environment: {name}[/green]")
-        shell, shell_name = get_current_shell()
-        os.execl(
-            shell,
-            shell_name,
-            "-c",
-            f"source {activate_script} && exec {shell_name}",
-        )
+    )
+    shell, shell_name = get_current_shell()
+    os.execl(
+        shell,
+        shell_name,
+        "-c",
+        f"source {activate_script} && exec {shell_name}",
+    )
 
 
 @cli.command()
@@ -380,20 +379,19 @@ def deactivate():
     project_name = current_venv.parent.name
     venv_display = get_environment_display_name(current_venv)
 
-    if Confirm.ask(
-        f"[yellow]Deactivate environment?[/yellow]\n"
+    console.print(
+        f"[yellow]Deactivating environment:[/yellow]\n"
         f"  From: [cyan]{venv_display}{project_name}[/cyan]\n"
         f"  To:   No active environment"
-    ):
-        console.print("[green]Deactivating virtual environment...[/green]")
-        shell, shell_name = get_current_shell()
-        deactivate_script = current_venv / "bin" / "activate"
-        os.execl(
-            shell,
-            shell_name,
-            "-c",
-            f"source {deactivate_script} && deactivate && exec {shell_name}",
-        )
+    )
+    shell, shell_name = get_current_shell()
+    deactivate_script = current_venv / "bin" / "activate"
+    os.execl(
+        shell,
+        shell_name,
+        "-c",
+        f"source {deactivate_script} && deactivate && exec {shell_name}",
+    )
 
 
 @cli.command()
