@@ -642,24 +642,13 @@ def deactivate():
 
 @cli.command()
 @click.argument("packages", nargs=-1, required=True)
-@click.option(
-    "--version",
-    "-v",
-    help="Specific version to install (only works with single package)",
-)
-def add(packages, version: Optional[str]):
+def add(packages):
     """Add packages to requirements.txt and install them"""
     manager = PackageManager()
-    if version and len(packages) > 1:
-        console.print(
-            "[yellow]Warning: Version option is ignored when installing multiple packages[/yellow]"
-        )
-        version = None
-
     failed_packages = []
     other_errors = []
     for package in packages:
-        success, error = manager.add(package, version)
+        success, error = manager.add(package)
         if not success:
             if error == "version_not_found":
                 failed_packages.append(package)

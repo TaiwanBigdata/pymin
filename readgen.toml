@@ -35,32 +35,28 @@ A CLI tool for PyPI package management, providing package name validation, virtu
 content = """
 ## Core Features
 
-1. Package Management
-   - Smart dependency handling with tree visualization (`pm list -t`)
-   - Intelligent package removal with unused dependency cleanup (`pm rm`)
+1. Environment Management
+   - Virtual environment creation and management (`pm venv`/`pm env`)
+   - One-command environment switching (`pm activate`/`pm deactivate`)
+   - Comprehensive environment information display (`pm info`)
+   - Automatic dependency installation and removal from requirements.txt
+   - Cross-platform compatibility
+
+2. Package Management
+   - Smart dependency visualization with tree structure (`pm list -t`)
+   - Efficient package installation with version control (`pm add`)
+   - Intelligent package removal with dependency cleanup (`pm rm`)
    - Automatic requirements.txt synchronization (`pm fix`)
-   - Version mismatch detection and resolution
    - Bulk package operations support
    - One-command package updates (`pm update`/`pm up`)
+   - Version conflict detection and resolution
 
-2. Project Validation
-   - Real-time PyPI name availability check (`pm check`)
-   - PEP 503 naming convention validation
-   - Similar package name detection
-   - Project metadata verification
-   - One-command PyPI publishing (`pm release`)
-
-3. Environment Management
-   - Virtual environment creation and reset (`pm venv`)
-   - One-command environment activation/deactivation (`pm activate`/`pm deactivate`)
-   - Cross-platform compatibility
-   - Automatic dependency installation
-
-4. Developer Experience
-   - Beautiful tree-style dependency visualization
-   - Color-coded status indicators
-   - Progress tracking with real-time feedback
-   - Minimal configuration required
+3. PyPI Integration
+   - Package name availability check (`pm check`)
+   - Similar package name search with threshold control (`pm search -t`)
+   - One-command package publishing (`pm release`)
+   - Test PyPI support for pre-release testing (`pm release --test`)
+   - Secure credential management
 """
 
 [Installation]
@@ -83,31 +79,57 @@ $ pipx install ${project.name}
 content = """
 ## Command Interface
 
-The CLI provides two command interfaces:
+PyMin provides a streamlined command interface with intuitive aliases:
 
-| Command | Description                       |
+| Command | Description                      |
 |---------|----------------------------------|
-| pm      | Main command (recommended)        |
-| pymin   | Alternative full name            |
+| `pm`    | Main command (recommended)       |
+| `pymin` | Alternative full name            |
 
 ### Available Commands
 
-| Command    | Description                                |
-|------------|--------------------------------------------|
-| check      | Check package name availability on PyPI    |
-| search     | Search for similar package names           |
-| venv (env) | Create or reset virtual environment        |
-| activate   | Activate virtual environment               |
-| deactivate | Deactivate virtual environment             |
-| info       | Show environment information               |
-| add        | Add packages to requirements.txt           |
-| remove (rm)| Remove packages and unused dependencies    |
-| list       | List installed packages with dependencies  |
-| fix        | Fix package inconsistencies                |
-| update (up)| Update packages to latest versions         |
-| release    | Build and publish package to PyPI          |
+#### Environment Management
+| Command      | Description                                | Alias/Options   |
+|--------------|--------------------------------------------|-----------------|
+| `info`       | Show environment information               |                 |
+| `venv`       | Create a virtual environment               | `env`             |
+| `activate`   | Activate the virtual environment           |                 |
+| `deactivate` | Deactivate current virtual environment     |                 |
+
+#### Package Management
+Both `add` and `remove` commands support multiple packages in one operation
+`add` supports version specification using `package==version` format
+| Command    | Description                                | Alias/Options          |
+|------------|--------------------------------------------|------------------------|
+| `list`     | List installed packages                    | -a: all, -t: tree      |
+| `add`      | Add and install packages                   |                        |
+| `remove`   | Remove packages from requirements.txt      | `rm`, -y: auto-confirm |
+| `update`   | Update all packages to latest versions     | `up`, -y: auto-confirm |
+| `fix`      | Fix package inconsistencies                | -y: auto-confirm       |
+
+#### PyPI Integration
+| Command    | Description                                | Alias/Options       |
+|------------|--------------------------------------------|---------------------|
+| `check`    | Check package name availability            |                     |
+| `search`   | Search for similar package names           | -t: threshold       |
+| `release`  | Build and publish package to PyPI          | --test: Test PyPI   |
 
 ### Command Examples
+
+#### Environment Management
+```bash
+# Show environment info
+$ pm info
+
+# Create and manage virtual environment
+$ pm venv          # Create with default name 'env'
+$ pm venv my_env   # Create with custom name
+$ pm env           # Alias for venv
+
+# Activate/Deactivate
+$ pm activate
+$ pm deactivate
+```
 
 #### Package Management
 ```bash
@@ -116,60 +138,32 @@ $ pm add fastapi
 $ pm add fastapi==0.100.0    # Specific version
 $ pm add fastapi sqlalchemy  # Multiple packages
 
-# Remove packages (with unused dependencies)
+# Remove packages
 $ pm rm fastapi
-$ pm rm -y fastapi  # Auto confirm
+$ pm rm -y fastapi           # Auto confirm
 
 # List packages
-$ pm list          # Show main packages
-$ pm list -a       # Show all installed packages with their versions (same as `pip list` command)
-$ pm list -t       # Show dependency tree with version status (✓ ≠ ✗ △)
+$ pm list                    # Show main packages
+$ pm list -a                 # Show all packages
+$ pm list -t                 # Show dependency tree
 
-# Fix inconsistencies
-$ pm fix           # Check and fix requirements.txt
-
-# Update packages
-$ pm update        # Update all packages to latest versions
-$ pm up -y         # Update with auto-confirm
+# Update and fix
+$ pm update                  # Update all packages
+$ pm fix                     # Fix requirements.txt
 ```
 
-#### Environment Management
-```bash
-# Create virtual environment
-$ pm venv          # Create with default name 'env'
-$ pm venv my_env   # Create with custom name
-$ pm env           # Alias for venv
-
-# Activate/Deactivate
-$ pm activate
-$ pm deactivate
-
-# Show environment info
-$ pm info
-```
-
-#### Project Validation
+#### PyPI Integration
 ```bash
 # Check package name
 $ pm check my-package-name
-┌─ PyPI Package Name Check Results ─┐
-│ Package Name: my-package-name     │
-│ Normalized Name: my-package-name  │
-│ Valid Format: ✓                   │
-│ Available: ✓                      │
-│ Message: Package name available!  │
-└───────────────────────────────────┘
 
 # Search similar names
 $ pm search fastapi           # Default similarity (80%)
 $ pm search fastapi -t 0.85   # Custom threshold
-```
 
-#### Project Management
-```bash
-# Build and publish to PyPI
-$ pm release        # Build and upload to PyPI
-$ pm release --test # Build and upload to Test PyPI
+# Publish package
+$ pm release                  # Publish to PyPI
+$ pm release --test           # Publish to Test PyPI
 ```
 """
 
