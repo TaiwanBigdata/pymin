@@ -22,6 +22,12 @@ import tomllib
 import requests
 import json
 from urllib.error import HTTPError
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+from rich.style import Style
+from rich.padding import Padding
 
 # Force color output
 console = Console(force_terminal=True, color_system="auto")
@@ -90,29 +96,163 @@ def create_status_table(title: str, rows: list[tuple[str, str, str]]) -> Table:
     return table
 
 
-@click.group()
-def cli():
-    """[cyan]PyMin[/cyan] CLI tool for PyPI package management
+def extract_error_from_html(html_content: str) -> str:
+    """Extract error message from HTML response.
 
-    \b
-    Core Commands:
-      check       Check package name availability on PyPI
-      search      Search for similar package names
-      venv        Create a virtual environment
+    Args:
+        html_content: HTML response from server
 
-    \b
-    Environment:
-      activate    Activate virtual environment
-      deactivate  Deactivate virtual environment
-      info        Show environment information
-
-    \b
-    Package Management:
-      add         Add package to requirements.txt
-      remove      Remove package from requirements.txt
-      list        List all packages in requirements.txt
+    Returns:
+        Extracted error message
     """
+    import re
+
+    # Extract content from <h1> and <body>
+    h1_match = re.search(r"<h1>(.*?)</h1>", html_content)
+    body_text = re.sub(
+        r"<br/?>|</?[^>]+>", "", html_content
+    )  # Remove HTML tags
+    body_text = re.sub(r"\s+", " ", body_text).strip()  # Clean up whitespace
+
+    if h1_match:
+        h1_content = h1_match.group(1).strip()
+        # If h1 content appears in body, just return h1
+        if h1_content in body_text:
+            return h1_content
+        # Otherwise return both
+        return f"{h1_content}\n{body_text}"
+
+    # If no h1 found, return cleaned body text
+    return body_text
+
+
+class RichHelpFormatter(click.HelpFormatter):
+    def write_usage(self, prog, args="", prefix="Usage: "):
+        # Skip usage section
+        pass
+
+    def write_heading(self, heading):
+        if heading == "Commands:":
+            console.print("\n[bold blue]Available Commands:[/bold blue]")
+        elif heading == "Options:":
+            # Skip options heading
+            pass
+        else:
+            console.print(f"\n[bold blue]{heading}:[/bold blue]")
+
+    def write_paragraph(self):
+        pass
+
+    def write_text(self, text):
+        # Skip usage and options text
+        if "Usage:" in text or text.strip() == "Options:" or "--help" in text:
+            return
+        console.print(text)
+
+
+def rich_command_format(ctx, formatter):
+    # Organize commands by category
+    categories = {
+        "Environment Management": ["info", "venv", "activate", "deactivate"],
+        "Package Management": ["list", "add", "remove", "update", "fix"],
+        "PyPI Integration": ["check", "search", "release"],
+    }
+
+    # Build command text by category
+    content = Text()
+    for category, cmd_names in categories.items():
+        content.append("\n")
+        content.append(category, style="bold blue")
+        content.append(":\n")
+
+        for cmd_name in cmd_names:
+            if cmd_name not in ctx.command.commands:
+                continue
+
+            cmd = ctx.command.commands[cmd_name]
+            if cmd.hidden:
+                continue
+
+            # Indent command
+            content.append("  ")
+            # Command name
+            content.append(cmd_name, style="dim")
+            # Padding for alignment
+            padding = 12 - len(cmd_name)
+            content.append(" " * padding)
+
+            # Command help
+            help_text = cmd.help or ""
+            content.append(Text(help_text, style="cyan"))
+
+            # Add parameter info or alias info
+            extra_info = []
+            if cmd_name == "list":
+                extra_info.append("(-a: all, -t: tree)")
+            elif cmd_name == "release":
+                extra_info.append("(--test: to Test PyPI)")
+            elif cmd_name == "search":
+                extra_info.append("(-t: threshold)")
+            elif cmd_name in ["remove", "update", "venv"]:
+                aliases = {"remove": "rm", "update": "up", "venv": "env"}
+                extra_info.append(f"(alias: {aliases[cmd_name]})")
+
+            if extra_info:
+                content.append(" ")
+                content.append(Text(" ".join(extra_info), style="green"))
+
+            content.append("\n")
+
+    # Create title
+    title_text = Text()
+    title_text.append("PyMin", style="bold cyan")
+    title_text.append(" - ", style="dim")
+    title_text.append("CLI tool for PyPI package management", style="cyan")
+
+    # Add global options section
+    content.append("\n")
+    content.append("Global Options", style="bold blue")
+    content.append(":\n")
+    content.append("  --version".ljust(12), style="dim")
+    content.append("  Show version number", style="cyan")
+    content.append(" ")
+    content.append("(alias: -V, -v)", style="green")
+    content.append("\n")
+
+    # Show everything in a panel
+    console.print(
+        Panel.fit(
+            content,
+            title=title_text,
+            border_style="blue",
+            padding=(1, 2),
+            title_align="left",
+        )
+    )
+
+
+class RichGroup(click.Group):
+    def format_help(self, ctx, formatter):
+        self.format_commands(ctx, formatter)
+
+
+@click.group(cls=RichGroup)
+@click.option(
+    "--version",
+    "-v",
+    "-V",
+    is_flag=True,
+    help="Show version number and exit.",
+    is_eager=True,
+    callback=lambda ctx, param, value: value
+    and (console.print("pymin 0.0.7") or ctx.exit()),
+)
+def cli(version):
+    """PyMin - CLI tool for PyPI package management"""
     pass
+
+
+cli.format_commands = rich_command_format
 
 
 @cli.command()
@@ -1009,6 +1149,33 @@ password = {token}
                             console.print(
                                 "[red]Upload rejected by server[/red]"
                             )
+
+                            # Extract error message from HTML response
+                            if "<html>" in error_msg:
+                                error_detail = extract_error_from_html(
+                                    error_msg
+                                )
+                                console.print("[red]Error Details:[/red]")
+                                console.print(f"[red]{error_detail}[/red]")
+                            else:
+                                # PyPI returns plain text error messages
+                                # Extract error message after the HTTP status
+                                error_lines = error_msg.splitlines()
+                                for line in error_lines:
+                                    if "HTTPError:" in line:
+                                        # Skip the line with HTTPError and get the next non-empty line
+                                        continue
+                                    if line.strip() and not line.startswith(
+                                        ("INFO", "WARNING")
+                                    ):
+                                        console.print(
+                                            "[red]Error Details:[/red]"
+                                        )
+                                        console.print(
+                                            f"[red]{line.strip()}[/red]"
+                                        )
+                                        break
+
                             # Check common issues
                             if not test:
                                 console.print("[yellow]Please verify:[/yellow]")
@@ -1020,9 +1187,8 @@ password = {token}
                                 )
                                 console.print("3. Version number is unique")
                             else:
-                                console.print(
-                                    "Try a unique version number (e.g. append [cyan].dev0[/cyan])"
-                                )
+                                console.print("[red]HTTP Error:[/red]")
+                                console.print(f"[red]{clean_line}[/red]")
                         elif (
                             "403 Forbidden" in clean_line
                             and "Authentication failed" not in shown_messages

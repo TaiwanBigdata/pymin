@@ -1,6 +1,6 @@
 # PyMin
 
-### pymin (0.0.6)
+### pymin (0.0.7)
 
 PyMin embodies Python's minimalist philosophy: a focused tool that does one thing exceptionally well. The name reflects our commitment to minimalism - minimal configuration, minimal complexity, but maximum effectiveness in Python development workflow.
 
@@ -18,6 +18,8 @@ The name "PyMin" carries dual meanings:
 - Turns development pain points into a playful and helpful tool
 
 This duality in naming captures both our design philosophy and the real-world problems we're solving, while adding a touch of Taiwanese developer humor to the Python ecosystem.
+
+Built on top of standard Python tools (pip, venv, requirements.txt), PyMin enhances rather than replaces your familiar workflow. It seamlessly integrates with existing Python development practices, ensuring 100% compatibility with standard tools while providing enhanced functionality and better user experience.
 
 A CLI tool for PyPI package management, providing package name validation, virtual environment management, and project information display with rich output formatting.
 

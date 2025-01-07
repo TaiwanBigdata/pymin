@@ -20,6 +20,8 @@ The name "PyMin" carries dual meanings:
 
 This duality in naming captures both our design philosophy and the real-world problems we're solving, while adding a touch of Taiwanese developer humor to the Python ecosystem.
 
+Built on top of standard Python tools (pip, venv, requirements.txt), PyMin enhances rather than replaces your familiar workflow. It seamlessly integrates with existing Python development practices, ensuring 100% compatibility with standard tools while providing enhanced functionality and better user experience.
+
 A CLI tool for PyPI package management, providing package name validation, virtual environment management, and project information display with rich output formatting.
 
 #### Demo
@@ -167,6 +169,7 @@ $ pm search fastapi -t 0.85   # Custom threshold
 ```bash
 # Build and publish to PyPI
 $ pm release        # Build and upload to PyPI
+$ pm release --test # Build and upload to Test PyPI
 ```
 """
 

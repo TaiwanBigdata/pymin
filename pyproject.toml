@@ -4,13 +4,26 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pymin"
-version = "0.0.6"
+version = "0.0.7"
 description = "A minimalist Python CLI tool for development workflow. Named after Taiwanese '歹命' (Pháiⁿ-miā), it turns common development pain points into simple solutions, providing package name validation, virtual environment management, and project information display with minimal configuration."
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "MIT" }
 authors = [{ name = "Albert Liu", email = "dreamerhyde@gmail.com" }]
-keywords = ["pypi", "package-name", "cli", "validation"]
+keywords = [
+    "pypi",
+    "package-validation",
+    "package-search",
+    "package-check",
+    "package-release",
+    "cli",
+    "virtual-environment",
+    "dependency-management",
+    "development-tools",
+    "package-management",
+    "requirements",
+    "project-management",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
@@ -23,16 +36,20 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Topic :: Utilities",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Build Tools",
     "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Testing",
+    "Topic :: System :: Installation/Setup",
+    "Topic :: System :: Software Distribution",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
 ]
 dependencies = [
     "click>=8.0.0",
     "rich>=10.0.0",
     "requests>=2.25.0",
     "packaging>=21.0",
-    "pandas>=2.0.0",
-    "setuptools>=61.0.0",
 ]
 
 [project.optional-dependencies]
