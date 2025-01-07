@@ -1,6 +1,6 @@
 # PyMin
 
-### pymin (0.0.4)
+### pymin (0.0.5)
 
 PyMin embodies Python's minimalist philosophy: a focused tool that does one thing exceptionally well. The name reflects our commitment to minimalism - minimal configuration, minimal complexity, but maximum effectiveness in Python development workflow.
 
@@ -22,10 +22,14 @@ This duality in naming captures both our design philosophy and the real-world pr
 A CLI tool for PyPI package management, providing package name validation, virtual environment management, and project information display with rich output formatting.
 
 #### Demo
-![Demo](https://raw.githubusercontent.com/TaiwanBigdata/pymin/main/docs/images/demo.gif)
+<p align="center">
+  <img src="https://raw.githubusercontent.com/TaiwanBigdata/pymin/main/docs/images/demo.gif" width="800" alt="Demo">
+</p>
 
 #### Environment Information
-![Environment Information](https://raw.githubusercontent.com/TaiwanBigdata/pymin/main/docs/images/env_info.png)
+<p align="center">
+  <img src="https://raw.githubusercontent.com/TaiwanBigdata/pymin/main/docs/images/env_info.png" alt="Environment Information">
+</p>
 
 
 # Features
@@ -45,6 +49,7 @@ A CLI tool for PyPI package management, providing package name validation, virtu
    - PEP 503 naming convention validation
    - Similar package name detection
    - Project metadata verification
+   - One-command PyPI publishing (`pm release`)
 
 3. Environment Management
    - Virtual environment creation and reset (`pm venv`)
@@ -101,6 +106,7 @@ The CLI provides two command interfaces:
 | list       | List installed packages with dependencies  |
 | fix        | Fix package inconsistencies                |
 | update (up)| Update packages to latest versions         |
+| release    | Build and publish package to PyPI          |
 
 ### Command Examples
 
@@ -158,6 +164,12 @@ $ pm check my-package-name
 # Search similar names
 $ pm search fastapi           # Default similarity (80%)
 $ pm search fastapi -t 0.85   # Custom threshold
+```
+
+#### Project Management
+```bash
+# Build and publish to PyPI
+$ pm release        # Build and upload to PyPI
 ```
 
 

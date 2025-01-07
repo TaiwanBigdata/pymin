@@ -468,8 +468,70 @@ def add(packages, version: Optional[str]):
             "[yellow]Warning: Version option is ignored when installing multiple packages[/yellow]"
         )
         version = None
+
+    failed_packages = []
+    other_errors = []
     for package in packages:
-        manager.add(package, version)
+        success, error = manager.add(package, version)
+        if not success:
+            if error == "version_not_found":
+                failed_packages.append(package)
+            elif error == "version_check_failed":
+                other_errors.append((package, "Failed to verify installation"))
+            elif error == "version_mismatch":
+                other_errors.append(
+                    (package, "Failed to install correct version")
+                )
+            else:
+                other_errors.append((package, error))
+
+    has_errors = False
+    if failed_packages:
+        has_errors = True
+        # Get available versions for each failed package
+        for package in failed_packages:
+            if "==" in package:
+                package_name, version = package.split("==")
+            else:
+                package_name = package
+                version = None
+
+            result = subprocess.run(
+                ["pip", "index", "versions", package_name],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                versions = result.stdout.strip().split("\n")
+                if len(versions) > 2:  # Skip header lines
+                    # Get latest version from the first line
+                    latest_version = versions[0].split("(")[-1].strip(")")
+                    # Get closest versions
+                    all_versions = []
+                    for line in versions[1:]:
+                        if "Available versions:" in line:
+                            all_versions = (
+                                line.split(":", 1)[1].strip().split(", ")[:5]
+                            )
+                            break
+                    console.print(f"[red]✗ Failed to install {package}[/red]")
+                    console.print(
+                        f"[dim]Latest version: {latest_version}[/dim]"
+                    )
+                    if all_versions:
+                        console.print(
+                            f"[dim]Recent versions: {', '.join(all_versions)}[/dim]"
+                        )
+                    if package != failed_packages[-1]:
+                        console.print("")
+
+    if other_errors:
+        has_errors = True
+        for package, error in other_errors:
+            console.print(f"[red]✗ {error}: {package}[/red]")
+
+    if has_errors:
+        sys.exit(1)
 
 
 @cli.command()

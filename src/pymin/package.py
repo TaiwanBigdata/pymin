@@ -180,27 +180,35 @@ class PackageManager:
             for name, version in sorted(packages.items()):
                 f.write(f"{name}{version}\n")
 
-    def _get_installed_version(self, package: str) -> Optional[str]:
-        """Get installed version of a package using pip list"""
+    def _get_installed_version(
+        self, package: str, debug: bool = False, status=None
+    ) -> Optional[str]:
+        """Get installed version of a package using importlib.metadata"""
         try:
-            result = subprocess.run(
-                ["pip", "list", "--format=json"],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode == 0:
-                import json
-
-                for pkg in json.loads(result.stdout):
-                    if pkg["name"].lower() == package.lower():
-                        return pkg["version"]
+            # Normalize package name for case-insensitive comparison
+            normalized_name = normalize_package_name(package)
+            if debug and status:
+                status.update(
+                    f"[yellow]Looking for package: {normalized_name}[/yellow]"
+                )
+            for dist in importlib.metadata.distributions():
+                dist_name = normalize_package_name(dist.metadata["Name"])
+                if dist_name == normalized_name:
+                    version = dist.version
+                    if debug and status:
+                        status.update(
+                            f"[green]Found version: {version}[/green]"
+                        )
+                    return version
+            if debug and status:
+                status.update(
+                    f"[red]Package not found: {normalized_name}[/red]"
+                )
             return None
-        except Exception:
-            # Fallback to pkg_resources
-            try:
-                return pkg_resources.get_distribution(package).version
-            except pkg_resources.DistributionNotFound:
-                return None
+        except Exception as e:
+            if debug and status:
+                status.update(f"[red]Error getting version: {str(e)}[/red]")
+            return None
 
     def _check_pip_upgrade(self, stderr: str, auto_confirm: bool = False):
         """Check if pip needs upgrade and handle it"""
@@ -256,13 +264,19 @@ class PackageManager:
         package: str,
         version: Optional[str] = None,
         auto_confirm: bool = False,
-    ) -> bool:
+    ) -> tuple[bool, Optional[str]]:
         """Add a package to requirements.txt and install it"""
         if not Path(os.environ.get("VIRTUAL_ENV", "")).exists():
             console.print(
                 "[red bold]No active virtual environment found.[/red bold]"
             )
-            return False
+            return False, None
+
+        # Parse package name and version if provided in package string
+        if "==" in package and not version:
+            package_name, version = package.split("==")
+        else:
+            package_name = package
 
         # Create requirements.txt if it doesn't exist
         if not self.requirements_file.exists():
@@ -282,16 +296,20 @@ class PackageManager:
                 else:
                     self._check_pip_upgrade(result.stderr)
 
-            # Check if package is already installed
-            pre_installed_version = self._get_installed_version(package)
-            if pre_installed_version:
-                # If version is specified and different from installed
-                if version and version != pre_installed_version:
-                    main_status = f"[yellow]Installing [cyan]{package}[/cyan]==[white]{version}[/white]..."
-                    with console.status(main_status, spinner="dots") as status:
-                        cmd = ["pip", "install", f"{package}=={version}"]
+            with console.status(
+                "[yellow]Checking package...[/yellow]", spinner="dots"
+            ) as status:
+                # Check if package is already installed
+                pre_installed_version = self._get_installed_version(
+                    package_name, debug=True, status=status
+                )
+                if pre_installed_version:
+                    # If version is specified and different from installed
+                    if version and version != pre_installed_version:
+                        main_status = f"[yellow]Installing [cyan]{package_name}[/cyan]==[white]{version}[/white]..."
+                        status.update(main_status)
                         process = subprocess.Popen(
-                            cmd,
+                            ["pip", "install", f"{package_name}=={version}"],
                             stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE,
                             text=True,
@@ -307,31 +325,46 @@ class PackageManager:
                                 # Check for dependency installation messages
                                 if "Collecting" in output:
                                     dep = output.split()[1].strip()
-                                    if dep != package:
+                                    if dep != package_name:
                                         status.update(
                                             f"{main_status}\n[dim]Installing dependency: {dep}[/dim]"
                                         )
 
                         _, stderr = process.communicate()
                         if process.returncode != 0:
-                            console.print(
-                                f"[red bold]Failed to update [cyan]{package}[/cyan]:[/red bold]\n{stderr}"
-                            )
-                            return False
+                            if any(
+                                msg in stderr
+                                for msg in [
+                                    "No matching distribution found for",
+                                    "ERROR: Could not find a version that satisfies the requirement",
+                                    "ERROR: No matching distribution found for",
+                                ]
+                            ):
+                                return False, "version_not_found"
+                            return False, stderr
 
-                    installed_version = version
+                        # Get the installed version after installation
+                        installed_version = self._get_installed_version(
+                            package_name, debug=True, status=status
+                        )
+                        if not installed_version:
+                            return False, "version_check_failed"
+                        if installed_version != version:
+                            return False, "version_mismatch"
+                    else:
+                        installed_version = pre_installed_version
                 else:
-                    installed_version = pre_installed_version
-            else:
-                # Install new package
-                cmd = ["pip", "install"]
-                if version:
-                    cmd.append(f"{package}=={version}")
-                else:
-                    cmd.append(package)
+                    # Install new package
+                    cmd = ["pip", "install"]
+                    if version:
+                        cmd.append(f"{package_name}=={version}")
+                    else:
+                        cmd.append(package_name)
 
-                main_status = f"[yellow]Installing [cyan]{package}[/cyan]..."
-                with console.status(main_status, spinner="dots") as status:
+                    main_status = (
+                        f"[yellow]Installing [cyan]{package_name}[/cyan]..."
+                    )
+                    status.update(main_status)
                     process = subprocess.Popen(
                         cmd,
                         stdout=subprocess.PIPE,
@@ -349,57 +382,58 @@ class PackageManager:
                             # Check for dependency installation messages
                             if "Collecting" in output:
                                 dep = output.split()[1].strip()
-                                if dep != package:
+                                if dep != package_name:
                                     status.update(
                                         f"{main_status}\n[dim]Installing dependency: {dep}[/dim]"
                                     )
 
-                    _, stderr = process.communicate()
+                    stdout, stderr = process.communicate()
 
                     if "already satisfied" in stderr:
                         # Try to get version from pip output first
                         installed_version = self._parse_version_from_pip_output(
-                            stderr, package
+                            stderr, package_name
                         )
                         if not installed_version:
                             installed_version = self._get_installed_version(
-                                package
+                                package_name, debug=True, status=status
                             )
 
                         if not installed_version:
-                            console.print(
-                                f"[red bold]Failed to determine version for [cyan]{package}[/cyan][/red bold]"
-                            )
-                            return False
+                            return False, "version_check_failed"
                     else:
                         if process.returncode != 0:
-                            console.print(
-                                f"[red bold]Failed to install [cyan]{package}[/cyan]:[/red bold]\n{stderr}"
-                            )
-                            return False
+                            if any(
+                                msg in stderr
+                                for msg in [
+                                    "No matching distribution found for",
+                                    "ERROR: Could not find a version that satisfies the requirement",
+                                    "ERROR: No matching distribution found for",
+                                ]
+                            ):
+                                return False, "version_not_found"
+                            if "ERROR: Invalid requirement:" in stderr:
+                                return False, "invalid_requirement"
+                            return False, stderr
 
-                        installed_version = self._get_installed_version(package)
+                        installed_version = self._get_installed_version(
+                            package_name, debug=True, status=status
+                        )
                         if not installed_version:
-                            console.print(
-                                f"[red bold]Package [cyan]{package}[/cyan] was not installed correctly.[/red bold]"
-                            )
-                            return False
+                            return False, "version_check_failed"
 
-            # Only update requirements.txt if we have a valid version
-            if installed_version:
-                packages[package] = f"=={installed_version}"
-                self._write_requirements(packages)
-                console.print(
-                    f"[green]✓ Added {package}=={installed_version}[/green]"
-                )
-                return True
-            return False
+                # Only update requirements.txt if we have a valid version
+                if installed_version:
+                    packages[package_name] = f"=={installed_version}"
+                    self._write_requirements(packages)
+                    console.print(
+                        f"[green]✓ Added {package_name}=={installed_version}[/green]"
+                    )
+                    return True, None
+                return False, "version_check_failed"
 
         except Exception as e:
-            console.print(
-                f"[red bold]Error installing [cyan]{package}[/cyan]:[/red bold]\n{str(e)}"
-            )
-            return False
+            return False, str(e)
 
     def _get_all_dependencies_recursive(
         self, package: str, seen=None
