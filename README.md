@@ -1,6 +1,6 @@
 # PyMin
 
-### pymin (0.0.5)
+### pymin (0.0.6)
 
 PyMin embodies Python's minimalist philosophy: a focused tool that does one thing exceptionally well. The name reflects our commitment to minimalism - minimal configuration, minimal complexity, but maximum effectiveness in Python development workflow.
 
@@ -22,14 +22,10 @@ This duality in naming captures both our design philosophy and the real-world pr
 A CLI tool for PyPI package management, providing package name validation, virtual environment management, and project information display with rich output formatting.
 
 #### Demo
-<p align="center">
-  <img src="https://raw.githubusercontent.com/TaiwanBigdata/pymin/main/docs/images/demo.gif" width="800" alt="Demo">
-</p>
+![Demo](https://raw.githubusercontent.com/TaiwanBigdata/pymin/main/docs/images/demo.gif?raw=true)
 
 #### Environment Information
-<p align="center">
-  <img src="https://raw.githubusercontent.com/TaiwanBigdata/pymin/main/docs/images/env_info.png" alt="Environment Information">
-</p>
+![Environment Information](https://raw.githubusercontent.com/TaiwanBigdata/pymin/main/docs/images/env_info.png?raw=true)
 
 
 # Features

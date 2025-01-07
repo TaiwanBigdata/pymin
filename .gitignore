@@ -25,4 +25,5 @@ __pycache__/
 /jupyterlab/
 
 # IDE & Tools
+.DS_Store
 .cursorrules

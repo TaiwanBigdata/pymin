@@ -18,9 +18,54 @@ from .package import PackageManager
 from typing import Optional
 from .utils import get_current_shell, get_environment_display_name
 from rich.markup import escape
+import tomllib
+import requests
+import json
+from urllib.error import HTTPError
 
 # Force color output
 console = Console(force_terminal=True, color_system="auto")
+
+
+def find_next_test_version(project_name: str, base_version: str) -> str:
+    """Find the next available test version number for Test PyPI"""
+
+    def version_exists(version: str) -> bool:
+        url = f"https://test.pypi.org/pypi/{project_name}/{version}/json"
+        try:
+            response = requests.get(url)
+            return response.status_code == 200
+        except:
+            return False
+
+    # If base version already has .dev, use it as is
+    if ".dev" in base_version:
+        return base_version
+
+    test_version = f"{base_version}.dev0"
+    index = 0
+
+    while version_exists(test_version):
+        index += 1
+        test_version = f"{base_version}.dev{index}"
+
+    return test_version
+
+
+def update_version_in_pyproject(version: str):
+    """Update version in pyproject.toml"""
+    with open("pyproject.toml", "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # Use simple string replacement to preserve formatting
+    import re
+
+    pattern = r'(version\s*=\s*["\'])([^"\']*?)(["\'])'
+    repl = lambda m: f"{m.group(1)}{version}{m.group(3)}"
+    new_content = re.sub(pattern, repl, content)
+
+    with open("pyproject.toml", "w", encoding="utf-8") as f:
+        f.write(new_content)
 
 
 def create_status_table(title: str, rows: list[tuple[str, str, str]]) -> Table:
@@ -593,8 +638,13 @@ def fix(y: bool):
 
 
 @cli.command()
-def release():
-    """Build and publish package to PyPI"""
+@click.option(
+    "--test",
+    is_flag=True,
+    help="Publish to Test PyPI instead of PyPI",
+)
+def release(test: bool):
+    """Build and publish package to PyPI or Test PyPI"""
     if not Path("pyproject.toml").exists():
         console.print("[red]No pyproject.toml found in current directory[/red]")
         return
@@ -638,7 +688,7 @@ def release():
     console.print("\n[blue]Building package...[/blue]")
     with console.status("[blue]Building...[/blue]", spinner="dots") as status:
         process = subprocess.run(
-            ["pyproject-build"],
+            ["python", "-m", "build"],
             capture_output=True,
             text=True,
         )
@@ -648,66 +698,418 @@ def release():
             return
         console.print("[green]✓ Package built successfully[/green]")
 
-    # Upload to PyPI
-    console.print("\n[blue]Uploading to PyPI...[/blue]")
-    result = subprocess.run(
-        ["twine", "upload", "--disable-progress-bar", "dist/*"],
-        capture_output=True,
-        text=True,
-        env={"PYTHONIOENCODING": "utf-8", **os.environ},
-    )
-    if result.returncode == 0:
-        console.print("[green]✓ Package published successfully[/green]")
-    else:
-        console.print("[red]✗ Upload failed[/red]")
-        error_msg = result.stderr or result.stdout
+    # Upload to PyPI or Test PyPI
+    repo_flag = "--repository testpypi" if test else "--repository pypi"
+    target = "Test PyPI" if test else "PyPI"
 
-        from rich.text import Text
+    # Read project info from pyproject.toml
+    with open("pyproject.toml", "rb") as f:
+        pyproject = tomllib.load(f)
+        project_name = pyproject["project"]["name"]
+        original_version = pyproject["project"]["version"]
+
+    # For Test PyPI, use temporary test version
+    if test:
+        try:
+            test_version = find_next_test_version(
+                project_name, original_version
+            )
+            console.print(
+                f"\n[blue]Using temporary version [cyan]{test_version}[/cyan] for Test PyPI...[/blue]"
+            )
+            update_version_in_pyproject(test_version)
+
+            # Rebuild package with new version
+            console.print(
+                "\n[blue]Rebuilding package with test version...[/blue]"
+            )
+            with console.status(
+                "[blue]Building...[/blue]", spinner="dots"
+            ) as status:
+                # Clean up dist directory first
+                if Path("dist").exists():
+                    import shutil
+
+                    shutil.rmtree("dist")
+
+                process = subprocess.run(
+                    ["python", "-m", "build"],
+                    capture_output=True,
+                    text=True,
+                )
+                if process.returncode != 0:
+                    console.print("[red]Build failed:[/red]")
+                    console.print(f"[red]{process.stderr}[/red]")
+                    # Restore original version before returning
+                    update_version_in_pyproject(original_version)
+                    return
+                console.print("[green]✓ Package rebuilt successfully[/green]")
+        except Exception as e:
+            console.print("[red]Failed to update version number:[/red]")
+            console.print(f"[red]{str(e)}[/red]")
+            # Restore original version before returning
+            update_version_in_pyproject(original_version)
+            return
+
+    console.print(f"\n[blue]Uploading to {target}...[/blue]")
+
+    # Check if credentials exist in .pypirc
+    pypirc_path = Path.home() / ".pypirc"
+    has_credentials = False
+    if pypirc_path.exists():
+        with open(pypirc_path) as f:
+            content = f.read()
+            section = "testpypi" if test else "pypi"
+            has_credentials = (
+                f"[{section}]" in content and "password =" in content
+            )
+
+    if not has_credentials:
+        console.print(
+            f"\n[yellow]No saved credentials found for {target}[/yellow]"
+        )
+        if Confirm.ask(
+            "Would you like to save your credentials for future use?"
+        ):
+            token = click.prompt("Enter your API token", hide_input=True)
+
+            # Create or update .pypirc
+            if pypirc_path.exists():
+                with open(pypirc_path) as f:
+                    current_config = f.read()
+
+                # Parse existing config
+                sections = {}
+                current_section = None
+                for line in current_config.splitlines():
+                    line = line.strip()
+                    if line.startswith("[") and line.endswith("]"):
+                        current_section = line[1:-1]
+                        sections[current_section] = []
+                    elif line and current_section:
+                        sections[current_section].append(line)
+
+                # Update the target section
+                section = "testpypi" if test else "pypi"
+                sections[section] = [
+                    "username = __token__",
+                    f"password = {token}",
+                ]
+
+                # Reconstruct the config
+                config = []
+                for section_name, lines in sections.items():
+                    config.append(f"[{section_name}]")
+                    config.extend(lines)
+                    config.append("")  # Empty line between sections
+                config = "\n".join(config)
+            else:
+                # Create new config with only the required section
+                section = "testpypi" if test else "pypi"
+                config = f"""[{section}]
+username = __token__
+password = {token}
+"""
+
+            # Write the config file
+            with open(pypirc_path, "w") as f:
+                f.write(config.strip() + "\n")
+            os.chmod(pypirc_path, 0o600)  # Set secure permissions
+            console.print(
+                f"[green]✓ Credentials saved to {pypirc_path}[/green]"
+            )
+
+    # Try uploading
+    try:
+        result = subprocess.run(
+            f"twine upload {repo_flag} --verbose --disable-progress-bar dist/*",
+            shell=True,
+            capture_output=True,
+            text=True,
+            env={"PYTHONIOENCODING": "utf-8", **os.environ},
+        )
+    except Exception as e:
+        console.print("[red]Upload failed:[/red]")
+        console.print(f"[red]{str(e)}[/red]")
+        if test:
+            update_version_in_pyproject(original_version)
+            console.print(
+                f"[green]✓ Restored original version [cyan]{original_version}[/cyan][/green]"
+            )
+        return
+
+    if result.returncode == 0:
+        # Display success message with project info
+        console.print(
+            f"[green]✓ Package published successfully to {target}[/green]"
+        )
+
+        # Clean up dist directory
+        if Path("dist").exists():
+            import shutil
+
+            shutil.rmtree("dist")
+            console.print("[green]✓ Cleaned up dist directory[/green]")
+
+        # Restore original version for Test PyPI
+        if test:
+            update_version_in_pyproject(original_version)
+            console.print(
+                f"[green]✓ Restored original version [cyan]{original_version}[/cyan][/green]"
+            )
+
+        # Generate URLs
+        version_for_url = test_version if test else original_version
+        if test:
+            web_url = f"https://test.pypi.org/project/{project_name}/{version_for_url}"
+            install_url = "https://test.pypi.org/simple/"
+        else:
+            web_url = (
+                f"https://pypi.org/project/{project_name}/{version_for_url}"
+            )
+            install_url = "https://pypi.org/simple/"
+
+        console.print(f"\n[cyan]Project Information:[/cyan]")
+        console.print(f"  • Name: [bold cyan]{project_name}[/bold cyan]")
+        console.print(f"  • Version: [bold cyan]{original_version}[/bold cyan]")
+        if test:
+            console.print(
+                f"  • Test Version: [bold cyan]{test_version}[/bold cyan]"
+            )
+        console.print(f"  • URL: [link={web_url}][blue]{web_url}[/blue][/link]")
+
+        if test:
+            console.print("\n[yellow]To install from Test PyPI:[/yellow]")
+            console.print(
+                f"[cyan]pip install -i {install_url} {project_name}=={test_version}[/cyan]"
+            )
+        else:
+            console.print("\n[yellow]To install:[/yellow]")
+            console.print(
+                f"[cyan]pip install {project_name}=={original_version}[/cyan]"
+            )
+    else:
+        console.print(f"[red]✗ Upload to {target} failed[/red]")
+        error_msg = result.stderr or result.stdout
 
         # Extract and format error messages
         error_lines = error_msg.splitlines()
         upload_info_shown = False
+        has_error_details = False
+        shown_messages = set()  # Track shown messages to avoid duplicates
+
         for line in error_lines:
             if not line.startswith(("[2K", "[?25")):  # Skip progress bar lines
                 if line.strip():
-                    # Convert ANSI to plain text
+                    # Skip HTML content and entity references
+                    if (
+                        any(
+                            html_tag in line.lower()
+                            for html_tag in [
+                                "<html",
+                                "</html>",
+                                "<head",
+                                "</head>",
+                                "<body",
+                                "</body>",
+                                "<title",
+                                "</title>",
+                                "<h1",
+                                "</h1>",
+                                "<br",
+                            ]
+                        )
+                        or "&#" in line
+                        or "&quot;" in line
+                        or "See http" in line
+                    ):
+                        continue
+
+                    # Convert ANSI to plain text and clean up
                     clean_line = Text.from_ansi(line.strip()).plain
+
+                    # Skip INFO lines in verbose output
+                    if clean_line.startswith(("INFO", "See http")):
+                        continue
+
+                    # Skip lines with hash values
+                    if any(
+                        pattern in clean_line
+                        for pattern in [
+                            "blake2_256 hash",
+                            "with hash",
+                            "). See",
+                        ]
+                    ):
+                        continue
+
+                    # Handle version conflict errors
+                    version_conflict_patterns = [
+                        "File already exists",
+                        "already exists",
+                        "filename has already been used",
+                        "filename is already registered",
+                    ]
+
+                    if (
+                        any(
+                            pattern in clean_line
+                            for pattern in version_conflict_patterns
+                        )
+                        and "File already exists" not in shown_messages
+                    ):
+                        has_error_details = True
+                        shown_messages.add("File already exists")
+                        # Read current version from pyproject.toml
+                        with open("pyproject.toml", "rb") as f:
+                            current_version = tomllib.load(f)["project"][
+                                "version"
+                            ]
+
+                        console.print(
+                            "\n[yellow]This version has already been uploaded.[/yellow]"
+                        )
+                        console.print(
+                            "1. Update the version number in pyproject.toml"
+                        )
+                        if test:
+                            console.print(
+                                "2. For testing, you can append [cyan].dev0[/cyan] to version"
+                            )
+                            console.print(
+                                f"   Example: {current_version} -> {current_version}[cyan].dev0[/cyan]"
+                            )
+                        else:
+                            console.print(
+                                f"   Current version: {current_version}"
+                            )
+                        continue
+
                     if "Uploading" in clean_line and not upload_info_shown:
                         if "legacy" in clean_line:
                             continue  # Skip the legacy URL line
                         pkg_name = clean_line.split()[-1]
-                        console.print(
-                            f"[blue]Uploading [cyan]{pkg_name}[/cyan][/blue]"
-                        )
-                        upload_info_shown = True
+                        if pkg_name not in shown_messages:
+                            console.print(
+                                f"[blue]Uploading [cyan]{pkg_name}[/cyan][/blue]"
+                            )
+                            shown_messages.add(pkg_name)
+                            upload_info_shown = True
                     elif (
                         "HTTPError:" in clean_line
-                        or "File already exists" in clean_line
+                        or "Bad Request" in clean_line
                     ):
-                        console.print(f"[red]{clean_line}[/red]")
+                        if (
+                            "400 Bad Request" in clean_line
+                            and "Upload rejected by server"
+                            not in shown_messages
+                        ):
+                            has_error_details = True
+                            shown_messages.add("Upload rejected by server")
+                            console.print(
+                                "[red]Upload rejected by server[/red]"
+                            )
+                            # Check common issues
+                            if not test:
+                                console.print("[yellow]Please verify:[/yellow]")
+                                console.print(
+                                    "1. Package name is registered on PyPI"
+                                )
+                                console.print(
+                                    "2. You have the correct permissions"
+                                )
+                                console.print("3. Version number is unique")
+                            else:
+                                console.print(
+                                    "Try a unique version number (e.g. append [cyan].dev0[/cyan])"
+                                )
+                        elif (
+                            "403 Forbidden" in clean_line
+                            and "Authentication failed" not in shown_messages
+                        ):
+                            has_error_details = True
+                            shown_messages.add("Authentication failed")
+                            console.print("[red]Authentication failed[/red]")
+                            console.print("[yellow]Please check:[/yellow]")
+                            if test:
+                                console.print(
+                                    "1. Create an account at Test PyPI:"
+                                )
+                                console.print(
+                                    "[blue]https://test.pypi.org/account/register/[/blue]"
+                                )
+                                console.print("2. Generate a token at:")
+                                console.print(
+                                    "[blue]https://test.pypi.org/manage/account/#api-tokens[/blue]"
+                                )
+                                console.print(
+                                    "3. Make sure you're using a Test PyPI token (not PyPI)"
+                                )
+                            else:
+                                console.print(
+                                    f"1. Your API token is correct for {target}"
+                                )
+                                console.print("2. Token has upload permissions")
+                    elif (
+                        "File already exists" in clean_line
+                        and "File already exists" not in shown_messages
+                    ):
+                        has_error_details = True
+                        shown_messages.add("File already exists")
+                        # Read current version from pyproject.toml
+                        with open("pyproject.toml", "rb") as f:
+                            current_version = tomllib.load(f)["project"][
+                                "version"
+                            ]
+
+                        console.print(
+                            "\n[yellow]This version has already been uploaded.[/yellow]"
+                        )
+                        console.print(
+                            "1. Update the version number in pyproject.toml"
+                        )
+                        if test:
+                            console.print(
+                                "2. For testing, you can append [cyan].dev0[/cyan] to version"
+                            )
+                            console.print(
+                                f"   Example: {current_version} -> {current_version}[cyan].dev0[/cyan]"
+                            )
                     elif not any(
                         skip in clean_line
-                        for skip in ["Uploading", "WARNING", "ERROR"]
+                        for skip in [
+                            "Uploading",
+                            "WARNING",
+                            "ERROR",
+                            "See https://",
+                            "information.",
+                        ]
                     ):
-                        console.print(clean_line)
+                        if "error: " in clean_line.lower():
+                            if clean_line not in shown_messages:
+                                console.print(f"[red]{clean_line}[/red]")
+                                shown_messages.add(clean_line)
+                        elif clean_line not in shown_messages:
+                            console.print(clean_line)
+                            shown_messages.add(clean_line)
 
-        # Show solution based on error type
-        console.print()  # Add empty line before solution
-        if "File already exists" in error_msg:
+        if not has_error_details:
+            console.print("\n[yellow]Additional troubleshooting:[/yellow]")
+            if test:
+                console.print(
+                    "1. Register at Test PyPI: [blue link=https://test.pypi.org/account/register/]https://test.pypi.org/account/register/[/blue]"
+                )
+                console.print(
+                    "2. Create a project: [blue link=https://test.pypi.org/manage/projects/]https://test.pypi.org/manage/projects/[/blue]"
+                )
+            console.print(f"3. Check your {target} account status")
+            console.print("4. Verify package metadata in pyproject.toml")
+
+        # Restore original version if test upload failed
+        if test:
+            update_version_in_pyproject(original_version)
             console.print(
-                "[yellow]Solution: Update the version number in [cyan]pyproject.toml[/cyan][/yellow]"
-            )
-        elif "Invalid credentials" in error_msg:
-            console.print(
-                "[yellow]Solution: Check your PyPI credentials in [cyan]~/.pypirc[/cyan] or set [cyan]TWINE_USERNAME[/cyan] and [cyan]TWINE_PASSWORD[/cyan][/yellow]"
-            )
-        elif "400 Bad Request" in error_msg:
-            console.print(
-                "[yellow]Solution: Check your package metadata in [cyan]pyproject.toml[/cyan][/yellow]"
-            )
-        elif "403 Forbidden" in error_msg:
-            console.print(
-                "[yellow]Solution: Verify your upload permissions for this package on PyPI[/yellow]"
+                f"\n[green]✓ Restored original version [cyan]{original_version}[/cyan][/green]"
             )
         return
 
