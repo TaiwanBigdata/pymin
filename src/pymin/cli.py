@@ -150,7 +150,7 @@ class RichHelpFormatter(click.HelpFormatter):
         console.print(text)
 
 
-def rich_command_format(ctx, formatter):
+def format_help_message(ctx, formatter):
     # Organize commands by category
     categories = {
         "Environment Management": ["info", "venv", "activate", "deactivate"],
@@ -213,8 +213,10 @@ def rich_command_format(ctx, formatter):
     content.append("\n")
     content.append("Global Options", style="bold blue")
     content.append(":\n")
-    content.append("  --version".ljust(12), style="dim")
-    content.append("  Show version number", style="cyan")
+    content.append("  --version", style="dim")
+    padding = 12 - len("--version")
+    content.append(" " * padding)
+    content.append("Show version number", style="cyan")
     content.append(" ")
     content.append("(alias: -V, -v)", style="green")
     content.append("\n")
@@ -252,7 +254,7 @@ def cli(version):
     pass
 
 
-cli.format_commands = rich_command_format
+cli.format_commands = format_help_message
 
 
 @cli.command()
