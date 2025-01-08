@@ -1334,21 +1334,51 @@ class PackageManager:
                 redundant_deps_map[name] = pkg_deps
                 redundant_deps.append((name, installed_packages.get(name, "")))
 
-        # Filter out redundant packages that are dependencies of other redundant packages
-        safe_to_remove = []
-        dependent_redundant = []
-        for name, version in redundant_deps:
-            is_dep_of_redundant = False
-            for other_name, deps in redundant_deps_map.items():
-                if other_name != name and normalize_package_name(name) in {
-                    normalize_package_name(d) for d in deps
-                }:
-                    is_dep_of_redundant = True
-                    break
-            if is_dep_of_redundant:
-                dependent_redundant.append((name, version))
-            else:
-                safe_to_remove.append((name, version))
+        # Build dependency graph for redundant packages
+        dependency_graph = {}
+        for name, deps in redundant_deps_map.items():
+            dependency_graph[name] = {
+                other_name
+                for other_name, _ in redundant_deps
+                if normalize_package_name(other_name)
+                in {normalize_package_name(d) for d in deps}
+            }
+
+        # Find all packages that can be safely removed
+        def find_safe_to_remove(graph):
+            safe = set()
+            visited = set()
+
+            def visit(node):
+                if node in visited:
+                    return
+                visited.add(node)
+                # Visit all dependencies first
+                for dep in graph.get(node, set()):
+                    visit(dep)
+                # If all dependencies are safe to remove, this node is safe too
+                if all(dep in safe for dep in graph.get(node, set())):
+                    safe.add(node)
+
+            # Visit all nodes
+            for node in graph:
+                visit(node)
+            return safe
+
+        # Get all packages that can be safely removed
+        safe_packages = find_safe_to_remove(dependency_graph)
+
+        # Split redundant packages into safe and dependent
+        safe_to_remove = [
+            (name, version)
+            for name, version in redundant_deps
+            if name in safe_packages
+        ]
+        dependent_redundant = [
+            (name, version)
+            for name, version in redundant_deps
+            if name not in safe_packages
+        ]
 
         # Update the redundant_deps list to only include safe to remove packages
         redundant_deps = safe_to_remove
