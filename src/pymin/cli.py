@@ -699,6 +699,12 @@ cli.add_command(remove, "rm")
 # Add 'env' as an alias for 'venv'
 cli.add_command(venv, "env")
 
+# Add 'on' as an alias for 'activate'
+cli.add_command(activate, "on")
+
+# Add 'off' as an alias for 'deactivate'
+cli.add_command(deactivate, "off")
+
 
 @cli.command(name="list")
 @click.option("-a", "--all", is_flag=True, help="List all installed packages")

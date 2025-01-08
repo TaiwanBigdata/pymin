@@ -101,9 +101,9 @@ PyMin provides a streamlined command interface with intuitive aliases:
 | Command      | Description                                | Alias/Options   |
 |--------------|--------------------------------------------|-----------------|
 | `info`       | Show environment information               |                 |
-| `venv`       | Create a virtual environment               | `env`             |
-| `activate`   | Activate the virtual environment           |                 |
-| `deactivate` | Deactivate current virtual environment     |                 |
+| `venv`       | Create a virtual environment               | `env`           |
+| `activate`   | Activate the virtual environment           | `on`            |
+| `deactivate` | Deactivate current virtual environment     | `off`           |
 
 #### Package Management
 Both `add` and `remove` commands support multiple packages in one operation
@@ -142,8 +142,8 @@ $ pm venv my_env   # Create with custom name
 $ pm env           # Alias for venv
 
 # Activate/Deactivate
-$ pm activate
-$ pm deactivate
+$ pm activate      # or pm on
+$ pm deactivate    # or pm off
 ```
 
 #### Package Management
@@ -181,31 +181,3 @@ $ pm release                  # Publish to PyPI
 $ pm release --test           # Publish to Test PyPI
 ```
 """
-
-[License]
-content = "This project is licensed under the ${project.license} License."
-
-[directory]
-title = "Project Structure"
-enable = true
-exclude_patterns = [
-   ".cursorrules",
-   ".env*",
-   "**/.DS_Store",
-   ".git/",
-   ".gitignore",
-   "env/",
-   "**/__pycache__/",
-   "*.egg-info/",
-   "jupyterlab",
-   "secrets",
-   "build",
-   "dist",
-   "docs/",
-]
-show_files = true
-show_comments = true
-
-[env]
-enable = false
-env_file = ".env"

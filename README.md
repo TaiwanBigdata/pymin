@@ -1,6 +1,6 @@
 # PyMin
 
-### pymin (0.0.8)
+### pymin (0.0.9)
 
 PyMin embodies Python's minimalist philosophy: a focused tool that does one thing exceptionally well. The name reflects our commitment to minimalism - minimal configuration, minimal complexity, but maximum effectiveness in Python development workflow.
 
@@ -100,9 +100,9 @@ PyMin provides a streamlined command interface with intuitive aliases:
 | Command      | Description                                | Alias/Options   |
 |--------------|--------------------------------------------|-----------------|
 | `info`       | Show environment information               |                 |
-| `venv`       | Create a virtual environment               | `env`             |
-| `activate`   | Activate the virtual environment           |                 |
-| `deactivate` | Deactivate current virtual environment     |                 |
+| `venv`       | Create a virtual environment               | `env`           |
+| `activate`   | Activate the virtual environment           | `on`            |
+| `deactivate` | Deactivate current virtual environment     | `off`           |
 
 #### Package Management
 Both `add` and `remove` commands support multiple packages in one operation
@@ -141,8 +141,8 @@ $ pm venv my_env   # Create with custom name
 $ pm env           # Alias for venv
 
 # Activate/Deactivate
-$ pm activate
-$ pm deactivate
+$ pm activate      # or pm on
+$ pm deactivate    # or pm off
 ```
 
 #### Package Management
@@ -178,34 +178,6 @@ $ pm search fastapi -t 0.85   # Custom threshold
 # Publish package
 $ pm release                  # Publish to PyPI
 $ pm release --test           # Publish to Test PyPI
-```
-
-
-# License
-
-This project is licensed under the MIT License.
-
-
-# Project Structure
-
-```
-pymin/
-├── src/
-│   └── pymin/
-│       ├── __main__.py    # Allow direct execution of the package
-│       ├── check.py       # Package name validation service with PyPI availability checking and security analysis
-│       ├── cli.py         # Command-line interface providing PyPI package name validation and search functionality
-│       ├── package.py     # Package management functionality providing dependency handling and requirements.txt management
-│       ├── search.py      # Package name similarity search service with PyPI integration
-│       ├── security.py    # Security service for package name typosquatting detection and analysis
-│       ├── similarity.py  # String similarity analysis service for package name comparison
-│       ├── utils.py       # Utility functions for package name normalization and string manipulation
-│       ├── validators.py  # Package name validation service implementing PyPI naming conventions
-│       └── venv.py        # CLI environment management service
-├── LICENSE
-├── pyproject.toml
-├── readgen.toml
-└── README.md
 ```
 
 
