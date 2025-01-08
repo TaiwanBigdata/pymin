@@ -755,10 +755,33 @@ class PackageManager:
         return tree
 
     def _get_package_status(
-        self, name: str, required_version: str, installed_version: str
+        self,
+        name: str,
+        required_version: str,
+        installed_version: str,
+        all_dependencies: set = None,
     ) -> str:
         """Get package status with consistent logic across all views"""
-        if required_version:
+        # Check if it's a redundant dependency
+        normalized_name = normalize_package_name(name)
+
+        # Only calculate dependencies if not provided and package is in requirements.txt
+        if all_dependencies is None and name in self._parse_requirements():
+            all_dependencies = set()
+            for pkg in self._get_all_installed_packages():
+                pkg_deps = self._get_all_dependencies_recursive(pkg)
+                all_dependencies.update(pkg_deps)
+
+        is_redundant = (
+            all_dependencies is not None
+            and name in self._parse_requirements()
+            and normalized_name
+            in {normalize_package_name(d) for d in all_dependencies}
+        )
+
+        if is_redundant:
+            return "[yellow]⚠[/yellow]"  # Redundant dependency
+        elif required_version:
             if not installed_version:
                 return "[red]✗[/red]"  # Most severe: Not installed
             elif required_version.startswith(
@@ -872,7 +895,7 @@ class PackageManager:
             table.add_column("Package Tree", style="cyan", no_wrap=True)
             table.add_column("Required", style="blue")
             table.add_column("Installed", style="cyan")
-            table.add_column("Status", justify="right")
+            table.add_column("Status", justify="center")
 
             # Build all trees at once with progress bar
             trees = {}
@@ -907,7 +930,7 @@ class PackageManager:
                         pkg_required = req_packages.get(pkg, "")
                         pkg_installed = tree.get("version") if tree else None
                         pkg_status = self._get_package_status(
-                            pkg, pkg_required, pkg_installed
+                            pkg, pkg_required, pkg_installed, all_dependencies
                         )
 
                         # Check if it's a redundant dependency
@@ -1016,7 +1039,7 @@ class PackageManager:
             table.add_column("Package", style="")
             table.add_column("Required", style="blue")
             table.add_column("Installed", style="cyan")
-            table.add_column("Status", justify="right")
+            table.add_column("Status", justify="center")
 
             # Get main packages for checking
             main_packages = self._get_all_main_packages()
@@ -1026,7 +1049,7 @@ class PackageManager:
                 required_version = req_packages.get(name, "")
                 installed_version = installed_packages.get(name)
                 status = self._get_package_status(
-                    name, required_version, installed_version
+                    name, required_version, installed_version, all_dependencies
                 )
 
                 # Check if it's a redundant dependency
