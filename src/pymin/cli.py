@@ -195,8 +195,20 @@ def format_help_message(ctx, formatter):
                 extra_info.append("(--test: to Test PyPI)")
             elif cmd_name == "search":
                 extra_info.append("(-t: threshold)")
-            elif cmd_name in ["remove", "update", "venv"]:
-                aliases = {"remove": "rm", "update": "up", "venv": "env"}
+            elif cmd_name in [
+                "remove",
+                "update",
+                "venv",
+                "activate",
+                "deactivate",
+            ]:
+                aliases = {
+                    "remove": "rm",
+                    "update": "up",
+                    "venv": "env",
+                    "activate": "on",
+                    "deactivate": "off",
+                }
                 extra_info.append(f"(alias: {aliases[cmd_name]})")
 
             if extra_info:
