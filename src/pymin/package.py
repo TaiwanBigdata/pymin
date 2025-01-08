@@ -924,13 +924,70 @@ class PackageManager:
     ):
         """List packages in requirements.txt and/or all installed packages"""
         # Check virtual environment status
-        venv_active = bool(os.environ.get("VIRTUAL_ENV"))
         current_venv = Path("env")
         current_venv_exists = current_venv.exists() and current_venv.is_dir()
+        active_venv = os.environ.get("VIRTUAL_ENV")
+        venv_active = bool(active_venv)
+
+        # Display current virtual environment status
+        from .venv import get_current_venv_display
+
+        if venv_active:
+            active_venv_path = Path(active_venv)
+            if (
+                current_venv_exists
+                and active_venv_path != current_venv.absolute()
+            ):
+                from .venv import get_environment_display_name
+
+                # Get absolute paths for both environments
+                current_env_display = get_environment_display_name(
+                    current_venv.absolute()
+                )
+                active_env_display = get_environment_display_name(
+                    active_venv_path
+                )
+
+                console.print(
+                    "\n[yellow]⚠ Virtual Environment Mismatch[/yellow]"
+                )
+
+                # Create table for environment display
+                table = Table(show_header=False, box=None, padding=(0, 2))
+                table.add_column("Label", style="dim")
+                table.add_column("Environment")
+
+                table.add_row("Current Active:", active_env_display)
+                table.add_row("New Detection:", current_env_display)
+
+                console.print(table)
+
+                # Construct original command arguments
+                cmd_args = ["pm", "list"]
+                if show_all:
+                    cmd_args.append("-a")
+                if show_deps:
+                    cmd_args.append("-t")
+                cmd = " ".join(cmd_args)
+
+                if Confirm.ask(
+                    f"\n[yellow]Do you want to switch environment and run [cyan]pm list{' -a' if show_all else ''}{' -t' if show_deps else ''}[/cyan]?[/yellow]"
+                ):
+                    shell, shell_name = get_current_shell()
+                    activate_script = current_venv / "bin" / "activate"
+                    os.execl(
+                        shell,
+                        shell_name,
+                        "-c",
+                        f"source {activate_script} && {cmd} && exec {shell_name}",
+                    )
+                    return
+            else:
+                console.print(f"\n{get_current_venv_display()}\n")
 
         if not venv_active:
             console.print(
-                "\n[red bold]⚠ Warning: No active virtual environment![/red bold]"
+                "\n[yellow]⚠ Warning: No active virtual environment![/yellow]"
             )
             if current_venv_exists:
                 console.print(
@@ -945,7 +1002,7 @@ class PackageManager:
                 cmd = " ".join(cmd_args)
 
                 if Confirm.ask(
-                    f"\n[yellow]Do you want to activate the environment and run '[cyan]{cmd}[/cyan]'?[/yellow]"
+                    f"\n[yellow]Do you want to activate the environment and run [cyan]pm list{' -a' if show_all else ''}{' -t' if show_deps else ''}[/cyan]?[/yellow]"
                 ):
                     shell, shell_name = get_current_shell()
                     activate_script = current_venv / "bin" / "activate"
