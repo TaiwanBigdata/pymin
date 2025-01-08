@@ -567,7 +567,6 @@ def info():
 def activate(name):
     """Activate the virtual environment"""
     venv_path = Path(name)
-    activate_script = venv_path / "bin" / "activate"
 
     if not venv_path.exists():
         console.print(
@@ -575,31 +574,21 @@ def activate(name):
         )
         return
 
-    if not activate_script.exists():
+    if not (venv_path / "bin" / "activate").exists():
         console.print(f"[red]Activation script not found in '{name}'.[/red]")
         return
 
-    # Get current project name (directory name)
-    project_name = Path.cwd().name
-    venv_display = get_environment_display_name(venv_path)
+    # Import environment management utilities
+    from .venv import EnvTransitionManager
 
-    current_status = "No active environment"
-    if "VIRTUAL_ENV" in os.environ:
-        current_venv = Path(os.environ["VIRTUAL_ENV"])
-        current_status = f"[cyan]{get_environment_display_name(current_venv)}{Path(current_venv).parent.name}[/cyan]"
+    # Get current environment if any
+    current_env = (
+        Path(os.environ["VIRTUAL_ENV"]) if "VIRTUAL_ENV" in os.environ else None
+    )
 
-    console.print(
-        f"[yellow]Switching environment:[/yellow]\n"
-        f"  From: {current_status}\n"
-        f"  To:   [cyan]{venv_display}{project_name}[/cyan]"
-    )
-    shell, shell_name = get_current_shell()
-    os.execl(
-        shell,
-        shell_name,
-        "-c",
-        f"source {activate_script} && exec {shell_name}",
-    )
+    # Handle environment transition
+    transition = EnvTransitionManager(current_env, venv_path)
+    transition.switch(action="Activating")
 
 
 @cli.command()
@@ -610,34 +599,13 @@ def deactivate():
         return
 
     current_venv = Path(os.environ["VIRTUAL_ENV"])
-    project_name = current_venv.parent.name
-    venv_display = get_environment_display_name(current_venv)
 
-    console.print(
-        f"[yellow]Deactivating environment:[/yellow]\n"
-        f"  From: [cyan]{venv_display}{project_name}[/cyan]\n"
-        f"  To:   No active environment"
-    )
-    shell, shell_name = get_current_shell()
+    # Import environment management utilities
+    from .venv import EnvTransitionManager
 
-    # If virtual environment folder doesn't exist, directly execute python -m venv deactivate
-    if not current_venv.exists():
-        os.execl(
-            shell,
-            shell_name,
-            "-c",
-            f"unset VIRTUAL_ENV && unset PYTHONHOME && export PATH=$(echo $PATH | tr ':' '\n' | grep -v {current_venv}/bin | tr '\n' ':' | sed 's/:$//') && exec {shell_name}",
-        )
-        return
-
-    # If virtual environment folder exists, use the original method
-    deactivate_script = current_venv / "bin" / "activate"
-    os.execl(
-        shell,
-        shell_name,
-        "-c",
-        f"source {deactivate_script} && deactivate && exec {shell_name}",
-    )
+    # Handle environment transition with None as target
+    transition = EnvTransitionManager(current_venv, None)
+    transition.switch(action="Deactivating")
 
 
 @cli.command()

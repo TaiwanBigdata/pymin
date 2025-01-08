@@ -10,6 +10,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 from rich.style import Style
+from rich.table import Table
+from rich.prompt import Confirm
 
 console = Console()
 
@@ -324,12 +326,88 @@ class VenvManager:
         console.print(panel)
 
 
-# Utility functions
+class EnvTransitionDisplay:
+    """Handles all environment transition related displays"""
+
+    @staticmethod
+    def format_env_name(project_name: str) -> str:
+        """Format environment name with consistent style"""
+        return f"[cyan]{project_name}[/cyan][dim white](env)[/dim white]"
+
+    @staticmethod
+    def format_transition(
+        from_env: Optional[Path], to_env: Optional[Path]
+    ) -> str:
+        """Format environment transition with consistent style"""
+        if from_env is None:
+            from_display = "[dim white]none[/dim white]"
+        else:
+            from_name = from_env.parent.absolute().name
+            from_display = EnvTransitionDisplay.format_env_name(from_name)
+
+        if to_env is None:
+            to_display = "[dim white]none[/dim white]"
+        else:
+            to_name = to_env.parent.absolute().name
+            to_display = EnvTransitionDisplay.format_env_name(to_name)
+
+        return f"{from_display} → {to_display}"
+
+    @staticmethod
+    def show_warning(
+        from_env: Optional[Path],
+        to_env: Optional[Path],
+        action: str = "Switching",
+    ) -> None:
+        """Display warning about environment transition"""
+        console.print(f"\n[yellow]⚠ Virtual Environment {action}:[/yellow]")
+        console.print(
+            f"  {EnvTransitionDisplay.format_transition(from_env, to_env)}"
+        )
+
+    @staticmethod
+    def show_confirmation_prompt(cmd: str) -> bool:
+        """Display environment transition confirmation prompt"""
+        return Confirm.ask(
+            f"\n[yellow]Do you want to switch environment{' and run ' + cmd if cmd else ''}?[/yellow]"
+        )
+
+    @staticmethod
+    def show_success(
+        from_env: Optional[Path],
+        to_env: Optional[Path],
+        action: str = "Switching",
+    ) -> None:
+        """Display success message for environment transition"""
+        console.print(
+            f"\n[green]✓ {action} environment: {EnvTransitionDisplay.format_transition(from_env, to_env)}[/green]"
+        )
+
+    @staticmethod
+    def show_error(message: str) -> None:
+        """Display error message for environment transition"""
+        console.print(f"\n[red]✗ {message}[/red]")
+
+
+def display_env_transition(
+    from_env: Path, to_env: Path, action: str = "Switching"
+) -> None:
+    """Display environment transition with consistent style
+
+    Args:
+        from_env: Source environment path
+        to_env: Target environment path
+        action: Action being performed ("Switching" or "Activating")
+    """
+    EnvTransitionDisplay.show_warning(from_env, to_env, action)
+
+
+# Remove old standalone functions that are now part of EnvTransitionDisplay
 def get_environment_display_name(venv_path: Path) -> str:
     """Get formatted display name for virtual environment
 
     Returns:
-        A string in format: ⚡ [cyan]project_name[/cyan](env_name) [dim]path/to/env[/dim]
+        A string in format: ⚡ project_name(env_name) path/to/env
     """
     try:
         # Get project directory name (parent of venv directory)
@@ -344,20 +422,6 @@ def get_environment_display_name(venv_path: Path) -> str:
         return "[dim]⚡ (env) unknown[/dim]"
 
 
-def get_environment_switch_name(venv_path: Path) -> str:
-    """Get formatted display name for environment switching
-
-    Returns:
-        A string in format: ⚡ [cyan]project_name[/cyan](env_name) [dim]path/to/env[/dim]
-    """
-    get_environment_display_name.switching_display = True
-    try:
-        result = get_environment_display_name(venv_path)
-    finally:
-        get_environment_display_name.switching_display = False
-    return result
-
-
 def get_current_venv_display() -> str:
     """Get current virtual environment display string
 
@@ -367,3 +431,76 @@ def get_current_venv_display() -> str:
     if venv_path := os.environ.get("VIRTUAL_ENV"):
         return get_environment_display_name(Path(venv_path))
     return ""
+
+
+class EnvTransitionManager:
+    """Manages environment transitions including switching and activation"""
+
+    def __init__(self, from_env: Optional[Path], to_env: Optional[Path]):
+        self.from_env = from_env
+        self.to_env = to_env
+        self.display = EnvTransitionDisplay()
+
+    def switch(self, cmd: str = "", action: str = "Switching") -> bool:
+        """Handle environment switching process
+
+        Args:
+            cmd: Command to run after switching
+            action: Action being performed ("Switching" or "Activating" or "Deactivating")
+
+        Returns:
+            bool: True if switch was successful, False otherwise
+        """
+        try:
+            # Show warning and get confirmation
+            self.display.show_warning(self.from_env, self.to_env, action)
+
+            if not cmd or self.display.show_confirmation_prompt(cmd):
+                # Prepare shell command
+                from .utils import get_current_shell
+
+                shell, shell_name = get_current_shell()
+
+                if action == "Deactivating":
+                    if not self.from_env or not self.from_env.exists():
+                        # If virtual environment folder doesn't exist, directly unset environment variables
+                        shell_cmd = f"unset VIRTUAL_ENV && unset PYTHONHOME && export PATH=$(echo $PATH | tr ':' '\n' | grep -v {self.from_env}/bin | tr '\n' ':' | sed 's/:$//') && exec {shell_name}"
+                    else:
+                        # If virtual environment folder exists, use the original method
+                        activate_script = self.from_env / "bin" / "activate"
+                        shell_cmd = f"source {activate_script} && deactivate && exec {shell_name}"
+                else:
+                    # For activation and switching
+                    if self.to_env is None:
+                        self.display.show_error(
+                            "Target environment is not specified"
+                        )
+                        return False
+
+                    activate_script = self.to_env / "bin" / "activate"
+                    if not activate_script.exists():
+                        self.display.show_error(
+                            f"Activation script not found at {activate_script}"
+                        )
+                        return False
+
+                    shell_cmd = (
+                        f"source {activate_script} && {cmd} && exec {shell_name}"
+                        if cmd
+                        else f"source {activate_script} && exec {shell_name}"
+                    )
+
+                # Show success message
+                self.display.show_success(self.from_env, self.to_env, action)
+
+                # Execute shell command
+                os.execl(shell, shell_name, "-c", shell_cmd)
+                return True
+
+        except Exception as e:
+            self.display.show_error(
+                f"Failed to {action.lower()} environment: {str(e)}"
+            )
+            return False
+
+        return False

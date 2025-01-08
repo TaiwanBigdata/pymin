@@ -929,8 +929,8 @@ class PackageManager:
         active_venv = os.environ.get("VIRTUAL_ENV")
         venv_active = bool(active_venv)
 
-        # Display current virtual environment status
-        from .venv import get_current_venv_display
+        # Import environment management utilities
+        from .venv import get_current_venv_display, EnvTransitionManager
 
         if venv_active:
             active_venv_path = Path(active_venv)
@@ -938,31 +938,7 @@ class PackageManager:
                 current_venv_exists
                 and active_venv_path != current_venv.absolute()
             ):
-                from .venv import get_environment_switch_name
-
-                # Get absolute paths for both environments
-                current_env_display = get_environment_switch_name(
-                    current_venv.absolute()
-                )
-                active_env_display = get_environment_switch_name(
-                    active_venv_path
-                )
-
-                console.print(
-                    "\n[yellow]⚠ Virtual Environment Mismatch[/yellow]"
-                )
-
-                # Create table for environment display
-                table = Table(show_header=False, box=None, padding=(0, 2))
-                table.add_column("Label", style="dim")
-                table.add_column("Environment")
-
-                table.add_row("Current Active:", active_env_display)
-                table.add_row("New Detection:", current_env_display)
-
-                console.print(table)
-
-                # Construct original command arguments
+                # Construct command
                 cmd_args = ["pm", "list"]
                 if show_all:
                     cmd_args.append("-a")
@@ -970,22 +946,11 @@ class PackageManager:
                     cmd_args.append("-t")
                 cmd = " ".join(cmd_args)
 
-                if Confirm.ask(
-                    f"\n[yellow]Do you want to switch environment and run [cyan]pm list{' -a' if show_all else ''}{' -t' if show_deps else ''}[/cyan]?[/yellow]"
-                ):
-                    from_env = active_venv_path.parent.absolute().name
-                    to_env = current_venv.absolute().parent.name
-                    console.print(
-                        f"\n[green]✓ Switching environment: [cyan]{from_env}[/cyan][dim white](env)[/dim white] → [cyan]{to_env}[/cyan][dim white](env)[/dim white][/green]\n"
-                    )
-                    shell, shell_name = get_current_shell()
-                    activate_script = current_venv / "bin" / "activate"
-                    os.execl(
-                        shell,
-                        shell_name,
-                        "-c",
-                        f"source {activate_script} && {cmd} && exec {shell_name}",
-                    )
+                # Handle environment transition
+                transition = EnvTransitionManager(
+                    active_venv_path, current_venv
+                )
+                if transition.switch(cmd):
                     return
             else:
                 # Store environment info for later display
@@ -999,7 +964,7 @@ class PackageManager:
                 console.print(
                     "[dim]A virtual environment exists but is not activated.[/dim]"
                 )
-                # Construct original command arguments
+                # Construct command
                 cmd_args = ["pm", "list"]
                 if show_all:
                     cmd_args.append("-a")
@@ -1007,21 +972,9 @@ class PackageManager:
                     cmd_args.append("-t")
                 cmd = " ".join(cmd_args)
 
-                if Confirm.ask(
-                    f"\n[yellow]Do you want to activate the environment and run [cyan]pm list{' -a' if show_all else ''}{' -t' if show_deps else ''}[/cyan]?[/yellow]"
-                ):
-                    project_name = current_venv.parent.name
-                    console.print(
-                        f"\n[green]✓ Activating environment: [cyan]{project_name}[/cyan][dim white](env)[/dim white][/green]"
-                    )
-                    shell, shell_name = get_current_shell()
-                    activate_script = current_venv / "bin" / "activate"
-                    os.execl(
-                        shell,
-                        shell_name,
-                        "-c",
-                        f"source {activate_script} && {cmd} && exec {shell_name}",
-                    )
+                # Handle environment activation
+                transition = EnvTransitionManager(Path("."), current_venv)
+                if transition.switch(cmd, action="Activating"):
                     return
             else:
                 console.print(
