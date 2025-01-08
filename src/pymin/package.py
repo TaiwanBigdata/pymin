@@ -1137,7 +1137,7 @@ class PackageManager:
                 f"  • Total Dependencies: [dim]{total_deps}[/dim] (Direct: [dim]{direct_deps}[/dim])"
             )
 
-        if mismatch_count or missing_count or redundant_deps:
+        if mismatch_count or missing_count or redundant_deps or unlisted_count:
             console.print(
                 "\n[dim]Tip: Run 'pm fix' to resolve package inconsistencies[/dim]"
             )
