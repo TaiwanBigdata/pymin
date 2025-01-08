@@ -511,7 +511,7 @@ def info():
 
     # Virtual environment info
     text.append("\n")
-    text.append("Virtual Environment", "bold white")
+    text.append("Virtual Environment Status", "bold white")
     text.append("\n")
 
     # Show active virtual environment if any
@@ -523,7 +523,7 @@ def info():
         text.append(active_venv_path.name, "cyan")
         text.append("\n")
         text.append("    Path: ", "dim")
-        text.append(str(active_venv_path), "cyan")
+        text.append(str(active_venv_path), "dim white")
         text.append("\n")
 
     # Show current directory virtual environment status
@@ -536,7 +536,7 @@ def info():
         text.append("env", "cyan")
         text.append("\n")
         text.append("    Path: ", "dim")
-        text.append(str(current_venv.absolute()), "cyan")
+        text.append(str(current_venv.absolute()), "dim white")
         text.append("\n")
         text.append("    Status: ", "dim")
         if info["virtual_env"] and Path(info["virtual_env"]).samefile(

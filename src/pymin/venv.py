@@ -275,7 +275,7 @@ class VenvManager:
         status = info["status"]
 
         text = Text()
-        text.append("\nEnvironment Information\n", style="bold white")
+        text.append("\nEnvironment Status\n", style="bold white")
 
         # Virtual Environment Status
         text.append("Status: ", style="dim")
@@ -288,7 +288,7 @@ class VenvManager:
         text.append("Location: ", style="dim")
         text.append(
             f"{status['venv_path']}\n",
-            style="cyan" if status["is_active"] else "yellow",
+            style="dim white",
         )
 
         # Python Information

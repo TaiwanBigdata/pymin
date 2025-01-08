@@ -957,9 +957,7 @@ class PackageManager:
                 env_display = get_current_venv_display()
 
         if not venv_active:
-            console.print(
-                "\n[yellow]⚠ Warning: No active virtual environment![/yellow]"
-            )
+            console.print("\n[yellow]⚠ Virtual Environment Status:[/yellow]")
             if current_venv_exists:
                 console.print(
                     "[dim]A virtual environment exists but is not activated.[/dim]"
@@ -973,7 +971,7 @@ class PackageManager:
                 cmd = " ".join(cmd_args)
 
                 # Handle environment activation
-                transition = EnvTransitionManager(Path("."), current_venv)
+                transition = EnvTransitionManager(None, current_venv)
                 if transition.switch(cmd, action="Activating"):
                     return
             else:
