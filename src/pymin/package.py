@@ -1295,7 +1295,7 @@ class PackageManager:
         if redundant_count := len(redundant_deps):
             text.append("  • Remove ")
             text.append(str(redundant_count), style=Style(color="yellow"))
-            text.append(" redundant dependency declaration(s)\n")
+            text.append(" redundant package(s) from requirements.txt\n")
 
         # Display the panel
         panel = Panel.fit(

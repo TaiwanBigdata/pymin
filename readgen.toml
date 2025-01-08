@@ -51,6 +51,10 @@ content = """
      * Missing packages (✗)
      * Redundant dependencies (⚠)
      * Unlisted installed packages (△)
+   - Smart requirements.txt management:
+     * Only main packages are listed
+     * Dependencies are automatically managed
+     * Prevents redundant dependency declarations
    - Bulk package operations support
    - One-command package updates (`pm update`/`pm up`)
    - Version conflict detection and resolution
@@ -111,6 +115,12 @@ Both `add` and `remove` commands support multiple packages in one operation
 | `remove`   | Remove packages from requirements.txt      | `rm`, -y: auto-confirm |
 | `update`   | Update all packages to latest versions     | `up`, -y: auto-confirm |
 | `fix`      | Fix package inconsistencies                | -y: auto-confirm       |
+
+The `fix` command automatically resolves all package inconsistencies:
+- Installs missing packages (✗)
+- Updates packages to match required versions (≠)
+- Removes redundant packages from requirements.txt (⚠)
+- Adds unlisted installed packages to requirements.txt (△)
 
 #### PyPI Integration
 | Command    | Description                                | Alias/Options       |
