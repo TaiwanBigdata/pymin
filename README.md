@@ -1,6 +1,6 @@
 # PyMin
 
-### pymin (0.0.7)
+### pymin (0.0.8)
 
 PyMin embodies Python's minimalist philosophy: a focused tool that does one thing exceptionally well. The name reflects our commitment to minimalism - minimal configuration, minimal complexity, but maximum effectiveness in Python development workflow.
 
@@ -38,17 +38,22 @@ A CLI tool for PyPI package management, providing package name validation, virtu
    - Virtual environment creation and management (`pm venv`/`pm env`)
    - One-command environment switching (`pm activate`/`pm deactivate`)
    - Comprehensive environment information display (`pm info`)
-   - Automatic dependency installation from requirements.txt
+   - Automatic dependency installation and removal from requirements.txt
    - Cross-platform compatibility
 
 2. Package Management
    - Smart dependency visualization with tree structure (`pm list -t`)
    - Efficient package installation with version control (`pm add`)
    - Intelligent package removal with dependency cleanup (`pm rm`)
-   - Automatic requirements.txt synchronization (`pm fix`)
+   - Comprehensive package inconsistency detection and auto-fix (`pm fix`):
+     * Version mismatches (≠)
+     * Missing packages (✗)
+     * Redundant dependencies (⚠)
+     * Unlisted installed packages (△)
    - Bulk package operations support
    - One-command package updates (`pm update`/`pm up`)
    - Version conflict detection and resolution
+   - Clear visual indicators for package status
 
 3. PyPI Integration
    - Package name availability check (`pm check`)

@@ -46,10 +46,15 @@ content = """
    - Smart dependency visualization with tree structure (`pm list -t`)
    - Efficient package installation with version control (`pm add`)
    - Intelligent package removal with dependency cleanup (`pm rm`)
-   - Automatic requirements.txt synchronization (`pm fix`)
+   - Comprehensive package inconsistency detection and auto-fix (`pm fix`):
+     * Version mismatches (≠)
+     * Missing packages (✗)
+     * Redundant dependencies (⚠)
+     * Unlisted installed packages (△)
    - Bulk package operations support
    - One-command package updates (`pm update`/`pm up`)
    - Version conflict detection and resolution
+   - Clear visual indicators for package status
 
 3. PyPI Integration
    - Package name availability check (`pm check`)
