@@ -329,15 +329,33 @@ def get_environment_display_name(venv_path: Path) -> str:
     """Get formatted display name for virtual environment
 
     Returns:
-        A string in format: �� [cyan]project_name[/cyan](env_name) [dim]path/to/env[/dim]
+        A string in format: ⚡ [cyan]project_name[/cyan](env_name) [dim]path/to/env[/dim]
     """
     try:
         # Get project directory name (parent of venv directory)
         project_name = venv_path.parent.name
         env_name = venv_path.name
-        return f"⚡ [cyan]{project_name}[/cyan]({env_name}) [dim]{venv_path.absolute()}[/dim]"
+        # For environment switching display (not dimmed)
+        if getattr(get_environment_display_name, "switching_display", False):
+            return f"⚡ [cyan]{project_name}[/cyan]({env_name}) [dim]{venv_path.absolute()}[/dim]"
+        # For normal display (all dimmed except project name)
+        return f"[dim]⚡ [cyan]{project_name}[/cyan]({env_name}) [white]{venv_path.absolute()}[/white][/dim]"
     except:
-        return "⚡ (env) unknown"
+        return "[dim]⚡ (env) unknown[/dim]"
+
+
+def get_environment_switch_name(venv_path: Path) -> str:
+    """Get formatted display name for environment switching
+
+    Returns:
+        A string in format: ⚡ [cyan]project_name[/cyan](env_name) [dim]path/to/env[/dim]
+    """
+    get_environment_display_name.switching_display = True
+    try:
+        result = get_environment_display_name(venv_path)
+    finally:
+        get_environment_display_name.switching_display = False
+    return result
 
 
 def get_current_venv_display() -> str:

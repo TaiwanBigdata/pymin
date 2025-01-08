@@ -938,13 +938,13 @@ class PackageManager:
                 current_venv_exists
                 and active_venv_path != current_venv.absolute()
             ):
-                from .venv import get_environment_display_name
+                from .venv import get_environment_switch_name
 
                 # Get absolute paths for both environments
-                current_env_display = get_environment_display_name(
+                current_env_display = get_environment_switch_name(
                     current_venv.absolute()
                 )
-                active_env_display = get_environment_display_name(
+                active_env_display = get_environment_switch_name(
                     active_venv_path
                 )
 
@@ -983,7 +983,8 @@ class PackageManager:
                     )
                     return
             else:
-                console.print(f"\n{get_current_venv_display()}\n")
+                # Store environment info for later display
+                env_display = get_current_venv_display()
 
         if not venv_active:
             console.print(
@@ -991,7 +992,7 @@ class PackageManager:
             )
             if current_venv_exists:
                 console.print(
-                    "[yellow]A virtual environment exists but is not activated.[/yellow]"
+                    "[dim]A virtual environment exists but is not activated.[/dim]"
                 )
                 # Construct original command arguments
                 cmd_args = ["pm", "list"]
@@ -1015,9 +1016,9 @@ class PackageManager:
                     return
             else:
                 console.print(
-                    "[yellow]No virtual environment found in current directory.[/yellow]"
+                    "[dim]No virtual environment found in current directory.[/dim]"
                 )
-                console.print("[yellow]Run: pm venv[/yellow]")
+                console.print("[dim]Run:[/dim] [cyan]pm venv[/cyan]")
                 return
 
         req_packages = self._parse_requirements()
@@ -1318,10 +1319,15 @@ class PackageManager:
                 f"  • Total Dependencies: [dim]{total_deps}[/dim] (Direct: [dim]{direct_deps}[/dim])"
             )
 
+        # Display tip before environment info
         if mismatch_count or missing_count or redundant_deps or unlisted_count:
             console.print(
-                "\n[dim]Tip: Run 'pm fix' to resolve package inconsistencies[/dim]"
+                "\n[dim]Tip: Run [cyan]pm fix[/cyan] to resolve package inconsistencies[/dim]"
             )
+
+        # Display environment info at the very end
+        if venv_active and "env_display" in locals():
+            console.print(f"\n{env_display}")
 
     def fix_packages(self, auto_confirm: bool = False) -> bool:
         """Fix package inconsistencies:
