@@ -414,10 +414,10 @@ def venv(name):
             return
 
     manager = VenvManager()
-    success, message = manager.create_venv(name)
+    success, message = manager.create(name)
 
     if success:
-        venv_info = manager.get_venv_info(name)
+        venv_info = manager.get_environment_info()
         text = Text.assemble(
             ("Virtual Environment: ", "dim"),
             (name, "cyan"),
@@ -429,7 +429,7 @@ def venv(name):
             (venv_info["pip_version"], "cyan"),
             "\n",
             ("Location: ", "dim"),
-            (str(venv_info["location"]), "cyan"),
+            (str(venv_info["working_dir"]), "cyan"),
             "\n",
             ("Status: ", "dim"),
             ("✓ Created", "green"),
