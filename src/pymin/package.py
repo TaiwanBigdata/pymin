@@ -19,6 +19,14 @@ from rich.panel import Panel
 
 console = Console()
 
+# Error codes for package operations
+ERROR_REDUNDANT_DEPENDENCY = "redundant_dependency"
+ERROR_USER_CANCELLED = "user_cancelled"
+ERROR_VERSION_NOT_FOUND = "version_not_found"
+ERROR_VERSION_CHECK_FAILED = "version_check_failed"
+ERROR_VERSION_MISMATCH = "version_mismatch"
+ERROR_INVALID_REQUIREMENT = "invalid_requirement"
+
 
 def normalize_package_name(name: str) -> str:
     """
@@ -299,6 +307,77 @@ class PackageManager:
             with console.status(
                 "[yellow]Checking package...[/yellow]", spinner="dots"
             ) as status:
+                # Check if the package is a dependency of other packages
+                all_dependencies = set()
+                for pkg in self._get_all_installed_packages():
+                    pkg_deps = self._get_all_dependencies_recursive(pkg)
+                    all_dependencies.update(pkg_deps)
+
+                normalized_name = normalize_package_name(package_name)
+                if normalized_name in {
+                    normalize_package_name(d) for d in all_dependencies
+                }:
+                    current_version = self._get_installed_version(package_name)
+
+                    # If no version specified, reject the addition
+                    if not version:
+                        console.print(
+                            f"[yellow]Package {package_name} is already provided as a dependency.[/yellow]"
+                        )
+                        return False, ERROR_REDUNDANT_DEPENDENCY
+
+                    # If specified version matches current version, reject the addition
+                    if current_version == version:
+                        console.print(
+                            f"[yellow]Package {package_name}=={version} is already provided as a dependency.[/yellow]"
+                        )
+                        return False, ERROR_REDUNDANT_DEPENDENCY
+
+                    # If different version specified, warn and ask for confirmation
+                    if not auto_confirm:
+                        status.stop()
+                        # Get version requirements from dependencies
+                        version_requirements = []
+                        for pkg in self._get_all_installed_packages():
+                            try:
+                                dist = importlib.metadata.distribution(pkg)
+                                if dist.requires:
+                                    for req in dist.requires:
+                                        try:
+                                            req_obj = Requirement(req)
+                                            if (
+                                                normalize_package_name(
+                                                    req_obj.name
+                                                )
+                                                == normalized_name
+                                            ):
+                                                version_requirements.append(
+                                                    (
+                                                        pkg,
+                                                        str(req_obj.specifier),
+                                                    )
+                                                )
+                                        except:
+                                            continue
+                            except:
+                                continue
+
+                        console.print(
+                            f"[yellow]Warning: {package_name} is already provided as a dependency (current version: {current_version}).[/yellow]"
+                        )
+                        if version_requirements:
+                            console.print("[yellow]Required by:[/yellow]")
+                            for pkg, req in version_requirements:
+                                console.print(
+                                    f"  • [cyan]{pkg}[/cyan] requires [white]{package_name}{req}[/white]"
+                                )
+                        console.print(
+                            f"[yellow]Installing a different version might cause compatibility issues.[/yellow]"
+                        )
+                        if not Confirm.ask("Do you want to continue?"):
+                            return False, ERROR_USER_CANCELLED
+                        status.start()
+
                 # Check if package is already installed
                 pre_installed_version = self._get_installed_version(
                     package_name, debug=True, status=status
@@ -340,7 +419,7 @@ class PackageManager:
                                     "ERROR: No matching distribution found for",
                                 ]
                             ):
-                                return False, "version_not_found"
+                                return False, ERROR_VERSION_NOT_FOUND
                             return False, stderr
 
                         # Get the installed version after installation
@@ -348,9 +427,9 @@ class PackageManager:
                             package_name, debug=True, status=status
                         )
                         if not installed_version:
-                            return False, "version_check_failed"
+                            return False, ERROR_VERSION_CHECK_FAILED
                         if installed_version != version:
-                            return False, "version_mismatch"
+                            return False, ERROR_VERSION_MISMATCH
                     else:
                         installed_version = pre_installed_version
                 else:
@@ -400,7 +479,7 @@ class PackageManager:
                             )
 
                         if not installed_version:
-                            return False, "version_check_failed"
+                            return False, ERROR_VERSION_CHECK_FAILED
                     else:
                         if process.returncode != 0:
                             if any(
@@ -411,16 +490,61 @@ class PackageManager:
                                     "ERROR: No matching distribution found for",
                                 ]
                             ):
-                                return False, "version_not_found"
+                                # Get available versions
+                                try:
+                                    result = subprocess.run(
+                                        [
+                                            "pip",
+                                            "index",
+                                            "versions",
+                                            package_name,
+                                        ],
+                                        capture_output=True,
+                                        text=True,
+                                    )
+                                    if result.returncode == 0:
+                                        versions = []
+                                        latest_version = None
+                                        for line in result.stdout.split("\n"):
+                                            if "Available versions:" in line:
+                                                versions = [
+                                                    v.strip()
+                                                    for v in line.split(":")[1]
+                                                    .strip()
+                                                    .split(",")
+                                                ][:5]
+                                            elif "Latest version:" in line:
+                                                latest_version = line.split(
+                                                    ":"
+                                                )[1].strip()
+
+                                        if latest_version:
+                                            console.print(
+                                                f"[red]✗ Failed to install {package_name}=={version}[/red]"
+                                            )
+                                            console.print(
+                                                f"Latest version: [green]{latest_version}[/green]"
+                                            )
+                                            if versions:
+                                                console.print(
+                                                    f"Recent versions: [cyan]{', '.join(versions)}[/cyan]"
+                                                )
+                                            return (
+                                                False,
+                                                ERROR_VERSION_NOT_FOUND,
+                                            )
+                                except:
+                                    pass
+                                return False, ERROR_VERSION_NOT_FOUND
                             if "ERROR: Invalid requirement:" in stderr:
-                                return False, "invalid_requirement"
+                                return False, ERROR_INVALID_REQUIREMENT
                             return False, stderr
 
                         installed_version = self._get_installed_version(
                             package_name, debug=True, status=status
                         )
                         if not installed_version:
-                            return False, "version_check_failed"
+                            return False, ERROR_VERSION_CHECK_FAILED
 
                 # Only update requirements.txt if we have a valid version
                 if installed_version:
@@ -430,7 +554,7 @@ class PackageManager:
                         f"[green]✓ Added {package_name}=={installed_version}[/green]"
                     )
                     return True, None
-                return False, "version_check_failed"
+                return False, ERROR_VERSION_CHECK_FAILED
 
         except Exception as e:
             return False, str(e)
@@ -1163,45 +1287,65 @@ class PackageManager:
 
         # Get all dependencies of all installed packages
         all_dependencies = set()
+        dependency_tree = {}  # Map of packages to their direct dependencies
         for pkg in installed_packages:
             pkg_deps = self._get_all_dependencies_recursive(pkg)
             all_dependencies.update(pkg_deps)
+            # Build dependency tree
+            direct_deps = get_package_dependencies(pkg)
+            if direct_deps:
+                dependency_tree[pkg] = direct_deps
 
+        # First identify all redundant packages
+        redundant_deps = []
+        redundant_deps_map = (
+            {}
+        )  # Map of redundant packages to their dependencies
         for name, req_version in req_packages.items():
             normalized_name = normalize_package_name(name)
-            if name not in installed_packages:
-                missing_packages.append((name, req_version.lstrip("==")))
-            elif req_version and installed_packages[name] != req_version.lstrip(
-                "=="
-            ):
-                version_mismatches.append(
-                    (name, req_version.lstrip("=="), installed_packages[name])
-                )
-            # Check if it's a dependency that's already covered
-            elif normalized_name in {
+            if normalized_name in {
                 normalize_package_name(d) for d in all_dependencies
             }:
-                redundant_deps.append((name, installed_packages[name]))
+                # Get this package's dependencies
+                pkg_deps = self._get_all_dependencies_recursive(name)
+                redundant_deps_map[name] = pkg_deps
+                redundant_deps.append((name, installed_packages.get(name, "")))
 
-        # Get directly installed packages using pip
-        try:
-            result = subprocess.run(
-                ["pip", "list", "--not-required", "--format=json"],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode == 0:
-                import json
+        # Filter out redundant packages that are dependencies of other redundant packages
+        safe_to_remove = []
+        dependent_redundant = []
+        for name, version in redundant_deps:
+            is_dep_of_redundant = False
+            for other_name, deps in redundant_deps_map.items():
+                if other_name != name and normalize_package_name(name) in {
+                    normalize_package_name(d) for d in deps
+                }:
+                    is_dep_of_redundant = True
+                    break
+            if is_dep_of_redundant:
+                dependent_redundant.append((name, version))
+            else:
+                safe_to_remove.append((name, version))
 
-                for pkg in json.loads(result.stdout):
-                    name = pkg["name"]
-                    if name not in req_packages and not (
-                        name.lower() in ("pip", "setuptools", "wheel")
-                        or name.startswith(("pip-", "setuptools-", "wheel-"))
-                    ):
-                        unlisted_packages.append((name, pkg["version"]))
-        except Exception:
-            pass
+        # Update the redundant_deps list to only include safe to remove packages
+        redundant_deps = safe_to_remove
+
+        # Filter unlisted packages to exclude dependencies
+        filtered_unlisted = []
+        for name, version in unlisted_packages:
+            normalized_name = normalize_package_name(name)
+            # Check if it's a dependency of any package in requirements.txt
+            is_dependency = False
+            for pkg in req_packages:
+                if pkg in dependency_tree and normalized_name in {
+                    normalize_package_name(d) for d in dependency_tree[pkg]
+                }:
+                    is_dependency = True
+                    break
+            if not is_dependency:
+                filtered_unlisted.append((name, version))
+
+        unlisted_packages = filtered_unlisted
 
         # Display issues
         if not (
@@ -1275,6 +1419,24 @@ class PackageManager:
                 text.append(version, style=Style(color="white"))
                 text.append(
                     " (already provided as a dependency)", style=Style(dim=True)
+                )
+                text.append("\n")
+
+        if dependent_redundant:
+            text.append(
+                "\nSkipped Redundant Dependencies (ℹ):\n",
+                style=Style(color="blue", bold=True),
+            )
+            for name, version in dependent_redundant:
+                text.append("  ", style=Style(color="blue"))
+                text.append("ℹ", style=Style(color="blue"))
+                text.append(" ")
+                text.append(name, style=Style(color="white"))
+                text.append("==", style=Style(color="white"))
+                text.append(version, style=Style(color="white"))
+                text.append(
+                    " (dependency of other redundant packages)",
+                    style=Style(dim=True),
                 )
                 text.append("\n")
 
@@ -1424,10 +1586,105 @@ class PackageManager:
                     # Add unlisted packages
                     for name, version in unlisted_packages:
                         packages[name] = f"=={version}"
-                    # Remove redundant dependencies
-                    for name, _ in redundant_deps:
+
+                    # Handle redundant dependencies
+                    for name, current_version in redundant_deps:
                         if name in packages:
+                            # Before removing, check if we need to restore the version
+                            required_versions = []
+                            version_constraints = []
+                            for pkg in installed_packages:
+                                pkg_deps = get_package_dependencies(pkg)
+                                if normalize_package_name(name) in {
+                                    normalize_package_name(d) for d in pkg_deps
+                                }:
+                                    # Get the version constraint for this dependency
+                                    try:
+                                        dist = importlib.metadata.distribution(
+                                            pkg
+                                        )
+                                        if dist.requires:
+                                            for req in dist.requires:
+                                                try:
+                                                    req_obj = Requirement(req)
+                                                    if normalize_package_name(
+                                                        req_obj.name
+                                                    ) == normalize_package_name(
+                                                        name
+                                                    ):
+                                                        version_constraints.append(
+                                                            req_obj.specifier
+                                                        )
+                                                except:
+                                                    continue
+                                    except:
+                                        continue
+
+                            # Remove from requirements.txt
                             del packages[name]
+
+                            # If we found version constraints
+                            if version_constraints:
+                                # Get available versions from PyPI
+                                try:
+                                    result = subprocess.run(
+                                        ["pip", "index", "versions", name],
+                                        capture_output=True,
+                                        text=True,
+                                    )
+                                    if result.returncode == 0:
+                                        available_versions = []
+                                        for line in result.stdout.split("\n"):
+                                            if "Available versions:" in line:
+                                                available_versions = [
+                                                    v.strip()
+                                                    for v in line.split(":")[1]
+                                                    .strip()
+                                                    .split(",")
+                                                ]
+                                                break
+
+                                        # Find the latest version that satisfies all constraints
+                                        for version in available_versions:
+                                            version = version.strip()
+                                            if all(
+                                                spec.contains(version)
+                                                for spec in version_constraints
+                                            ):
+                                                required_versions.append(
+                                                    version
+                                                )
+                                                break
+                                except:
+                                    pass
+
+                            # If we found a compatible version
+                            if required_versions:
+                                latest_compatible = required_versions[
+                                    0
+                                ]  # First version is the latest
+                                if current_version != latest_compatible:
+                                    status.update(
+                                        f"[yellow]Restoring {name} to version {latest_compatible} as required by dependencies...[/yellow]"
+                                    )
+                                    process = subprocess.run(
+                                        [
+                                            "pip",
+                                            "install",
+                                            f"{name}=={latest_compatible}",
+                                        ],
+                                        capture_output=True,
+                                        text=True,
+                                    )
+                                    if process.returncode == 0:
+                                        console.print(
+                                            f"[green]✓ Restored {name} to version {latest_compatible}[/green]"
+                                        )
+                                    else:
+                                        console.print(
+                                            f"[yellow]Warning: Failed to restore {name} to version {latest_compatible}[/yellow]"
+                                        )
+
                     self._write_requirements(packages)
                     fixed = True
                 except Exception as e:
