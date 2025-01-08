@@ -455,7 +455,7 @@ class PackageManager:
         return all_deps
 
     def remove(self, package: str, auto_confirm: bool = False) -> bool:
-        """Remove a package from requirements.txt and uninstall it"""
+        """Remove a package from requirements.txt and uninstall it if safe to do so"""
         if not Path(os.environ.get("VIRTUAL_ENV", "")).exists():
             console.print("[red]No active virtual environment found.[/red]")
             return False
@@ -477,33 +477,43 @@ class PackageManager:
             return False
 
         try:
-            # Get all dependencies recursively (including dependencies of dependencies)
+            # Get all installed packages
+            all_packages = self._get_all_installed_packages()
+
+            # Get all dependencies of all installed packages
+            all_dependencies = set()
+            for pkg in all_packages:
+                pkg_deps = self._get_all_dependencies_recursive(pkg)
+                all_dependencies.update(pkg_deps)
+
+            # Check if the package is a dependency of any other package
+            if normalized_package in {
+                normalize_package_name(d) for d in all_dependencies
+            }:
+                # Only remove from requirements.txt
+                if package_to_remove in packages:
+                    del packages[package_to_remove]
+                    self._write_requirements(packages)
+                    console.print(
+                        f"[yellow]Package {package_to_remove} is a dependency used by other packages.[/yellow]"
+                    )
+                    console.print(
+                        "[yellow]Removed from requirements.txt but not uninstalled.[/yellow]"
+                    )
+                return True
+
+            # If it's a main package and not a dependency
+            # Get its dependencies
             deps_to_remove = self._get_all_dependencies_recursive(
                 package_to_remove
             )
-
-            # Get all installed packages except the one being removed
-            all_packages = {
-                name: version
-                for name, version in self._get_all_installed_packages().items()
-                if normalize_package_name(name) != normalized_package
-            }
-
-            # Get all dependencies of other packages recursively
-            used_deps = set()
-            for pkg in all_packages:
-                if (
-                    pkg in packages
-                ):  # Only check dependencies of packages in requirements.txt
-                    pkg_deps = self._get_all_dependencies_recursive(pkg)
-                    used_deps.update(pkg_deps)
 
             # Filter out dependencies that are used by other packages
             deps_to_remove = {
                 dep
                 for dep in deps_to_remove
                 if normalize_package_name(dep)
-                not in {normalize_package_name(d) for d in used_deps}
+                not in {normalize_package_name(d) for d in all_dependencies}
             }
 
             # Show what will be removed
@@ -522,44 +532,47 @@ class PackageManager:
                 f"[yellow]Removing [cyan]{package_to_remove}[/cyan]..."
             )
             with console.status(main_status, spinner="dots") as status:
+                # Remove from requirements.txt first
+                if package_to_remove in packages:
+                    del packages[package_to_remove]
+                    self._write_requirements(packages)
+
                 # Prepare all packages to remove
                 all_to_remove = [package_to_remove] + sorted(deps_to_remove)
 
-                # Remove all packages in one command
-                process = subprocess.Popen(
-                    ["pip", "uninstall", "-y"] + all_to_remove,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    bufsize=1,
-                    universal_newlines=True,
-                )
-
-                _, stderr = process.communicate()
-                if process.returncode != 0:
-                    console.print(
-                        f"[red]Failed to uninstall packages:[/red]\n{stderr}"
+                # Uninstall packages
+                for pkg in all_to_remove:
+                    status.update(
+                        f"{main_status}\n[dim]Uninstalling: {pkg}[/dim]"
                     )
-                    return False
+                    try:
+                        process = subprocess.run(
+                            ["pip", "uninstall", "-y", pkg],
+                            capture_output=True,
+                            text=True,
+                        )
+                        if process.returncode != 0:
+                            console.print(
+                                f"\n[red]Failed to uninstall {pkg}:[/red]\n{process.stderr}"
+                            )
+                            return False
+                    except Exception as e:
+                        console.print(
+                            f"\n[red]Error uninstalling {pkg}:[/red]\n{str(e)}"
+                        )
+                        return False
 
-            del packages[package_to_remove]
-            self._write_requirements(packages)
-            # Reset caches when removing package
-            self._installed_packages_cache = None
-            self._dependencies_cache = {}
-
+            console.print(
+                f"[green]✓ Successfully removed {package_to_remove}[/green]"
+            )
             if deps_to_remove:
                 console.print(
-                    f"[green]✓ Removed {package_to_remove} and {len(deps_to_remove)} unused dependencies[/green]"
+                    f"[green]✓ Removed {len(deps_to_remove)} unused dependencies[/green]"
                 )
-            else:
-                console.print(f"[green]✓ Removed {package_to_remove}[/green]")
             return True
 
         except Exception as e:
-            console.print(
-                f"[red]Error removing {package_to_remove}:[/red]\n{str(e)}"
-            )
+            console.print(f"[red]Error removing package:[/red]\n{str(e)}")
             return False
 
     def _get_all_installed_packages(self) -> Dict[str, str]:
@@ -808,6 +821,12 @@ class PackageManager:
             self._get_all_installed_packages()
         )  # This already filters out pymin
 
+        # Get all dependencies of all installed packages
+        all_dependencies = set()
+        for pkg in installed_packages:
+            pkg_deps = self._get_all_dependencies_recursive(pkg)
+            all_dependencies.update(pkg_deps)
+
         # Convert package names to canonical form
         req_packages = {
             self._get_canonical_package_name(name): version
@@ -859,8 +878,7 @@ class PackageManager:
             trees = {}
             package_list = sorted(packages_to_show.keys())
             with console.status(
-                "[yellow]Building dependency tree...[/yellow]",
-                spinner="dots",
+                "[yellow]Building dependency tree...[/yellow]", spinner="dots"
             ) as status:
                 # Build trees
                 for i, name in enumerate(package_list):
@@ -892,6 +910,18 @@ class PackageManager:
                             pkg, pkg_required, pkg_installed
                         )
 
+                        # Check if it's a redundant dependency
+                        normalized_name = normalize_package_name(pkg)
+                        is_redundant = (
+                            level == 0
+                            and pkg in req_packages
+                            and normalized_name
+                            in {
+                                normalize_package_name(d)
+                                for d in all_dependencies
+                            }
+                        )
+
                         # Create tree branches
                         if level > 0:
                             branch = "└── " if last_sibling else "├── "
@@ -900,6 +930,8 @@ class PackageManager:
                                 display_name += " [dim](circular)[/dim]"
                         else:
                             display_name = pkg
+                            if is_redundant:
+                                display_name += " [yellow](redundant)[/yellow]"
 
                         # Format display values
                         required_display = (
@@ -949,7 +981,13 @@ class PackageManager:
             # Count total dependencies
             total_deps = 0
             direct_deps = 0
-            for tree in trees.values():
+            redundant_deps = 0
+            for name, tree in trees.items():
+                normalized_name = normalize_package_name(name)
+                if name in req_packages and normalized_name in {
+                    normalize_package_name(d) for d in all_dependencies
+                }:
+                    redundant_deps += 1
 
                 def count_deps(tree_node):
                     if tree_node.get("circular"):
@@ -982,6 +1020,7 @@ class PackageManager:
 
             # Get main packages for checking
             main_packages = self._get_all_main_packages()
+            redundant_deps = 0
 
             for name in sorted(packages_to_show.keys()):
                 required_version = req_packages.get(name, "")
@@ -990,15 +1029,28 @@ class PackageManager:
                     name, required_version, installed_version
                 )
 
+                # Check if it's a redundant dependency
+                normalized_name = normalize_package_name(name)
+                is_redundant = name in req_packages and normalized_name in {
+                    normalize_package_name(d) for d in all_dependencies
+                }
+                if is_redundant:
+                    redundant_deps += 1
+
                 # Dim the display if it's not a main package
+                display_name = name
                 if name not in main_packages:
-                    name = f"[dim]{name}[/dim]"
+                    display_name = f"[dim]{name}[/dim]"
                     if installed_version:
                         installed_version = f"[dim]{installed_version}[/dim]"
                     status = f"[dim]{status}[/dim]"
 
+                # Add redundant indicator
+                if is_redundant:
+                    display_name += " [yellow](redundant)[/yellow]"
+
                 table.add_row(
-                    name,
+                    display_name,
                     (
                         required_version.lstrip("=")
                         if required_version
@@ -1007,6 +1059,7 @@ class PackageManager:
                     installed_version or "[yellow]None[/yellow]",
                     status,
                 )
+
         console.print(table)
 
         # Display statistics summary
@@ -1052,28 +1105,26 @@ class PackageManager:
             console.print(
                 f"  • Not in requirements.txt (△): [blue]{unlisted_count}[/blue]"
             )
+        if redundant_deps:
+            console.print(
+                f"  • Redundant Dependencies: [yellow]{redundant_deps}[/yellow]"
+            )
         if show_deps and total_deps:
             console.print(
                 f"  • Total Dependencies: [dim]{total_deps}[/dim] (Direct: [dim]{direct_deps}[/dim])"
             )
 
-        if mismatch_count or missing_count:
+        if mismatch_count or missing_count or redundant_deps:
             console.print(
                 "\n[dim]Tip: Run 'pm fix' to resolve package inconsistencies[/dim]"
             )
-            # python_path = os.path.join(self.venv_dir, "bin", "python")
-            # site_packages = get_venv_site_packages(python_path)
-            # console.print(
-            #     f"\n[dim]Environment Information:\n"
-            #     f"  Python Executable: {self._format_path_highlight(python_path)}\n"
-            #     f"  Site Packages: {self._format_path_highlight(site_packages)}[/dim]"
-            # )
 
     def fix_packages(self, auto_confirm: bool = False) -> bool:
         """Fix package inconsistencies:
         1. Install missing packages from requirements.txt
         2. Add installed packages to requirements.txt
         3. Fix version mismatches
+        4. Remove redundant dependency declarations from requirements.txt
         """
         req_packages = self._parse_requirements()
         installed_packages = self._get_all_installed_packages()
@@ -1083,8 +1134,18 @@ class PackageManager:
         missing_packages = []  # in requirements.txt but not installed
         unlisted_packages = []  # installed but not in requirements.txt
         version_mismatches = []  # version doesn't match requirements.txt
+        redundant_deps = (
+            []
+        )  # dependencies in requirements.txt that are already covered by other packages
+
+        # Get all dependencies of all installed packages
+        all_dependencies = set()
+        for pkg in installed_packages:
+            pkg_deps = self._get_all_dependencies_recursive(pkg)
+            all_dependencies.update(pkg_deps)
 
         for name, req_version in req_packages.items():
+            normalized_name = normalize_package_name(name)
             if name not in installed_packages:
                 missing_packages.append((name, req_version.lstrip("==")))
             elif req_version and installed_packages[name] != req_version.lstrip(
@@ -1093,6 +1154,11 @@ class PackageManager:
                 version_mismatches.append(
                     (name, req_version.lstrip("=="), installed_packages[name])
                 )
+            # Check if it's a dependency that's already covered
+            elif normalized_name in {
+                normalize_package_name(d) for d in all_dependencies
+            }:
+                redundant_deps.append((name, installed_packages[name]))
 
         # Get directly installed packages using pip
         try:
@@ -1115,7 +1181,12 @@ class PackageManager:
             pass
 
         # Display issues
-        if not (missing_packages or unlisted_packages or version_mismatches):
+        if not (
+            missing_packages
+            or unlisted_packages
+            or version_mismatches
+            or redundant_deps
+        ):
             console.print("[green]✓ No package inconsistencies found[/green]")
             return True
 
@@ -1167,6 +1238,23 @@ class PackageManager:
                 text.append(version, style=Style(color="white"))
                 text.append("\n")
 
+        if redundant_deps:
+            text.append(
+                "\nRedundant Dependencies (⚠):\n",
+                style=Style(color="yellow", bold=True),
+            )
+            for name, version in redundant_deps:
+                text.append("  ", style=Style(color="yellow"))
+                text.append("⚠", style=Style(color="yellow"))
+                text.append(" ")
+                text.append(name, style=Style(color="white"))
+                text.append("==", style=Style(color="white"))
+                text.append(version, style=Style(color="white"))
+                text.append(
+                    " (already provided as a dependency)", style=Style(dim=True)
+                )
+                text.append("\n")
+
         # Show summary of actions
         text.append("\nActions to be taken:\n", style=Style(bold=True))
         if missing_count := len(missing_packages):
@@ -1181,6 +1269,10 @@ class PackageManager:
             text.append("  • Add ")
             text.append(str(unlisted_count), style=Style(color="blue"))
             text.append(" package(s) to requirements.txt\n")
+        if redundant_count := len(redundant_deps):
+            text.append("  • Remove ")
+            text.append(str(redundant_count), style=Style(color="yellow"))
+            text.append(" redundant dependency declaration(s)\n")
 
         # Display the panel
         panel = Panel.fit(
@@ -1301,13 +1393,18 @@ class PackageManager:
                         ):
                             return False
 
-            # Add unlisted packages to requirements.txt
-            if unlisted_packages:
+            # Update requirements.txt
+            if unlisted_packages or redundant_deps:
                 status.update("[yellow]Updating requirements.txt...[/yellow]")
                 try:
                     packages = self._parse_requirements()
+                    # Add unlisted packages
                     for name, version in unlisted_packages:
                         packages[name] = f"=={version}"
+                    # Remove redundant dependencies
+                    for name, _ in redundant_deps:
+                        if name in packages:
+                            del packages[name]
                     self._write_requirements(packages)
                     fixed = True
                 except Exception as e:
