@@ -436,7 +436,8 @@ def venv(name):
 def info():
     """Show environment information"""
     manager = VenvManager()
-    info = manager.get_environment_info()
+    # Only check for updates if explicitly requested
+    info = manager.get_environment_info(check_updates=False)
 
     text = Text()
     text.append("\n")

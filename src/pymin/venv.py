@@ -84,6 +84,7 @@ class VenvManager:
         self.project_root = project_root or Path.cwd()
         self.venv_path = self.project_root / "env"
         self._status = VenvStatus()
+        self._check_updates = False  # Add flag for pip updates check
         self._initialize_status()
 
     def _initialize_status(self) -> None:
@@ -204,38 +205,6 @@ class VenvManager:
         except Exception as e:
             return False, f"Failed to create virtual environment: {str(e)}"
 
-    def get_environment_info(self) -> Dict:
-        """Get comprehensive environment information"""
-        status = self.check_health()
-
-        # Get platform information
-        platform_name = {
-            "darwin": "macOS",
-            "linux": "Linux",
-            "win32": "Windows",
-        }.get(sys.platform, sys.platform)
-
-        # Get CPU architecture
-        try:
-            arch = subprocess.check_output(["uname", "-m"], text=True).strip()
-        except:
-            arch = "unknown"
-
-        # Get pip information
-        pip_info = self._get_pip_info()
-
-        return {
-            "python_version": status.python_version,
-            "platform": f"{platform_name} ({arch})",
-            "virtual_env": os.environ.get("VIRTUAL_ENV"),
-            "working_dir": str(self.project_root),
-            "pip_version": pip_info.get("version"),
-            "pip_location": pip_info.get("location"),
-            "pip_update": pip_info.get("update_available"),
-            "user_scripts": Path.home() / ".local/bin",
-            "status": status.to_dict(),
-        }
-
     def _get_pip_info(self) -> Dict:
         """Get pip version and update information"""
         info = {"version": None, "location": None, "update_available": None}
@@ -250,24 +219,67 @@ class VenvManager:
                 info["version"] = version_output[1]
                 info["location"] = version_output[3]
 
-            # Check for updates
-            result = subprocess.run(
-                ["pip", "list", "--outdated", "--format=json"],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode == 0:
-                import json
+            # Check for updates (only if explicitly requested)
+            if self._check_updates:
+                result = subprocess.run(
+                    ["pip", "list", "--outdated", "--format=json"],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode == 0:
+                    import json
 
-                outdated = json.loads(result.stdout)
-                for pkg in outdated:
-                    if pkg["name"] == "pip":
-                        info["update_available"] = pkg["latest_version"]
-                        break
+                    outdated = json.loads(result.stdout)
+                    for pkg in outdated:
+                        if pkg["name"] == "pip":
+                            info["update_available"] = pkg["latest_version"]
+                            break
         except Exception:
             pass
 
         return info
+
+    def get_environment_info(self, check_updates: bool = False) -> Dict:
+        """Get comprehensive environment information
+
+        Args:
+            check_updates: Whether to check for pip updates (slower)
+        """
+        # Set update check flag
+        self._check_updates = check_updates
+
+        status = self.check_health()
+
+        # Get platform information
+        platform_name = {
+            "darwin": "macOS",
+            "linux": "Linux",
+            "win32": "Windows",
+        }.get(sys.platform, sys.platform)
+
+        # Get CPU architecture (cache it)
+        if not hasattr(self, "_arch"):
+            try:
+                self._arch = subprocess.check_output(
+                    ["uname", "-m"], text=True
+                ).strip()
+            except:
+                self._arch = "unknown"
+
+        # Get pip information
+        pip_info = self._get_pip_info()
+
+        return {
+            "python_version": status.python_version,
+            "platform": f"{platform_name} ({self._arch})",
+            "virtual_env": os.environ.get("VIRTUAL_ENV"),
+            "working_dir": str(self.project_root),
+            "pip_version": pip_info.get("version"),
+            "pip_location": pip_info.get("location"),
+            "pip_update": pip_info.get("update_available"),
+            "user_scripts": Path.home() / ".local/bin",
+            "status": status.to_dict(),
+        }
 
     def display_info(self) -> None:
         """Display formatted environment information"""
