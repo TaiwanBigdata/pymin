@@ -973,6 +973,11 @@ class PackageManager:
                 if Confirm.ask(
                     f"\n[yellow]Do you want to switch environment and run [cyan]pm list{' -a' if show_all else ''}{' -t' if show_deps else ''}[/cyan]?[/yellow]"
                 ):
+                    from_env = active_venv_path.parent.absolute().name
+                    to_env = current_venv.absolute().parent.name
+                    console.print(
+                        f"\n[green]✓ Switching environment: [cyan]{from_env}[/cyan][dim white](env)[/dim white] → [cyan]{to_env}[/cyan][dim white](env)[/dim white][/green]\n"
+                    )
                     shell, shell_name = get_current_shell()
                     activate_script = current_venv / "bin" / "activate"
                     os.execl(
@@ -1005,6 +1010,10 @@ class PackageManager:
                 if Confirm.ask(
                     f"\n[yellow]Do you want to activate the environment and run [cyan]pm list{' -a' if show_all else ''}{' -t' if show_deps else ''}[/cyan]?[/yellow]"
                 ):
+                    project_name = current_venv.parent.name
+                    console.print(
+                        f"\n[green]✓ Activating environment: [cyan]{project_name}[/cyan][dim white](env)[/dim white][/green]"
+                    )
                     shell, shell_name = get_current_shell()
                     activate_script = current_venv / "bin" / "activate"
                     os.execl(
