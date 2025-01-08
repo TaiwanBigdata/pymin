@@ -28,6 +28,8 @@ from rich.table import Table
 from rich.text import Text
 from rich.style import Style
 from rich.padding import Padding
+import time
+from datetime import datetime, timedelta
 
 # Force color output
 console = Console(force_terminal=True, color_system="auto")
@@ -238,6 +240,61 @@ class RichGroup(click.Group):
         self.format_commands(ctx, formatter)
 
 
+def check_for_updates():
+    """Check for PyMin updates on PyPI"""
+    cache_dir = Path.home() / ".cache" / "pymin"
+    cache_file = cache_dir / "version_check.json"
+
+    # Create cache directory if it doesn't exist
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    # Read cache if exists
+    if cache_file.exists():
+        try:
+            with open(cache_file) as f:
+                cache = json.load(f)
+                last_check = datetime.fromtimestamp(cache["last_check"])
+                # Only check once per day
+                if datetime.now() - last_check < timedelta(days=1):
+                    return
+        except (json.JSONDecodeError, KeyError, OSError):
+            pass
+
+    try:
+        # Get current version from pyproject.toml
+        with open(
+            Path(__file__).parent.parent.parent / "pyproject.toml", "rb"
+        ) as f:
+            current_version = tomllib.load(f)["project"]["version"]
+
+        # Get latest version from PyPI
+        response = requests.get("https://pypi.org/pypi/pymin/json")
+        if response.status_code == 200:
+            latest_version = response.json()["info"]["version"]
+
+            # Compare versions
+            if latest_version != current_version:
+                console.print(
+                    f"\n[yellow]New version available: [cyan]{latest_version}[/cyan] (current: {current_version})[/yellow]"
+                )
+                console.print(
+                    "[yellow]To update, run: [cyan]pipx upgrade pymin[/cyan][/yellow]\n"
+                )
+
+            # Update cache
+            with open(cache_file, "w") as f:
+                json.dump(
+                    {
+                        "last_check": time.time(),
+                        "latest_version": latest_version,
+                    },
+                    f,
+                )
+    except Exception:
+        # Silently fail on any error
+        pass
+
+
 @click.group(cls=RichGroup)
 @click.option(
     "--version",
@@ -251,6 +308,7 @@ class RichGroup(click.Group):
 )
 def cli(version):
     """PyMin - CLI tool for PyPI package management"""
+    check_for_updates()
     pass
 
 
