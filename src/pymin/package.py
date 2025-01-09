@@ -39,16 +39,17 @@ def get_system_packages() -> Set[str]:
     """
     Get a set of known system packages that should be excluded from analysis
     """
+    # core_system_packages
     return {
         "pip",
         "setuptools",
         "wheel",
-        "pkg-resources",
-        "distribute",
-        "six",
-        "distlib",
-        "packaging",
-        "pyparsing",
+        # "pkg-resources",
+        # "distribute",
+        # "six",
+        # "distlib",
+        # "packaging",
+        # "pyparsing",
     }
 
 
