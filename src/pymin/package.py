@@ -1308,7 +1308,7 @@ class PackageManager:
 
         req_packages = self._parse_requirements()
         installed_packages = self._get_all_installed_packages()
-        fixed = False
+        fixed = []
 
         # Group issues by type
         missing_packages = []  # in requirements.txt but not installed
@@ -1528,7 +1528,9 @@ class PackageManager:
                             ):
                                 return False
                     else:
-                        fixed = True
+                        fixed.append(
+                            f"[green]✓ Updated {name} to {req_version}[/green]"
+                        )
                 except Exception as e:
                     console.print(
                         f"\n[red]Error updating {name}:[/red]\n{str(e)}"
@@ -1575,7 +1577,9 @@ class PackageManager:
                             ):
                                 return False
                     else:
-                        fixed = True
+                        fixed.append(
+                            f"[green]✓ Installed {name}=={version}[/green]"
+                        )
                 except Exception as e:
                     console.print(
                         f"\n[red]Error installing {name}:[/red]\n{str(e)}"
@@ -1686,7 +1690,7 @@ class PackageManager:
                                     )
                                     if process.returncode == 0:
                                         console.print(
-                                            f"[green]✓ Restored {name} to version {latest_compatible}[/green]"
+                                            f"[green]✓ Restored {name} [dim strike]{current_version}[/dim strike] → {latest_compatible}[/green]"
                                         )
                                     else:
                                         console.print(
@@ -1694,7 +1698,7 @@ class PackageManager:
                                         )
 
                     self._write_requirements(packages)
-                    fixed = True
+                    fixed.append(f"[green]✓ Updated requirements.txt[/green]")
                 except Exception as e:
                     console.print(
                         f"\n[red]Error updating requirements.txt:[/red]\n{str(e)}"
@@ -1702,8 +1706,14 @@ class PackageManager:
                     return False
 
         if fixed:
+            # Display all fix messages
+            console.print()  # Add a blank line
+            for message in fixed:
+                console.print(message)
             console.print("\n[green]✓ All issues have been fixed[/green]")
-        return fixed
+            return True
+
+        return False
 
     def _format_path_highlight(self, full_path: str) -> str:
         """Format path to highlight the important parts"""
