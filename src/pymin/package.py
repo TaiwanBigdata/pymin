@@ -1324,6 +1324,18 @@ class PackageManager:
             pkg_deps = self._get_all_dependencies_recursive(pkg)
             all_dependencies.update(pkg_deps)
 
+        # Check for missing packages
+        for name, req_version in req_packages.items():
+            if name not in installed_packages:
+                missing_packages.append((name, req_version.lstrip("==")))
+            elif req_version and req_version.startswith("=="):
+                current_version = installed_packages[name]
+                required_version = req_version.lstrip("==")
+                if current_version != required_version:
+                    version_mismatches.append(
+                        (name, required_version, current_version)
+                    )
+
         # Build dependency tree (for unlisted packages check)
         dependency_tree = {}  # Map of packages to their direct dependencies
         for pkg in installed_packages:
@@ -1568,9 +1580,133 @@ class PackageManager:
 
                     _, stderr = process.communicate()
                     if process.returncode != 0:
-                        console.print(
-                            f"\n[red]Failed to install {name}:[/red]\n{stderr}"
-                        )
+                        # Check for Python version incompatibility
+                        if "Requires-Python" in stderr:
+                            status.stop()  # Stop the status spinner before showing options
+
+                            # Parse Python version requirements from stderr
+                            import re
+
+                            version_req = re.search(
+                                r"Requires-Python ([<>=]+[0-9.]+(?:,[<>=]+[0-9.]+)*)",
+                                stderr,
+                            )
+                            version_constraints = (
+                                version_req.group(1)
+                                if version_req
+                                else "unknown"
+                            )
+
+                            console.print(
+                                f"\n[red]Version Compatibility Error:[/red]"
+                            )
+                            console.print(
+                                f"Package [cyan]{name}[/cyan] is not compatible with your Python version:"
+                            )
+                            console.print(
+                                f"• Current Python: [cyan]{sys.version.split()[0]}[/cyan]"
+                            )
+                            console.print(
+                                f"• Required Python: [cyan]{version_constraints}[/cyan]"
+                            )
+
+                            # Get available versions
+                            result = subprocess.run(
+                                ["pip", "index", "versions", name],
+                                capture_output=True,
+                                text=True,
+                            )
+
+                            if result.returncode == 0:
+                                versions = []
+                                for line in result.stdout.split("\n"):
+                                    if "Available versions:" in line:
+                                        versions = [
+                                            v.strip()
+                                            for v in line.split(":")[1]
+                                            .strip()
+                                            .split(",")
+                                        ]
+                                        break
+
+                                if versions:
+                                    console.print(
+                                        "\n[cyan]Available versions:[/cyan]"
+                                    )
+                                    for v in versions[
+                                        :5
+                                    ]:  # Show only the latest 5 versions
+                                        console.print(f"  • {v}")
+
+                                    if not auto_confirm:
+                                        choice = console.input(
+                                            "\n[yellow]Choose an action:[/yellow]\n"
+                                            "1) Try another version (enter version number)\n"
+                                            "2) Skip this package\n"
+                                            "3) Cancel the fix process\n"
+                                            "Enter your choice: "
+                                        )
+
+                                        if choice == "2":
+                                            console.print(
+                                                f"[yellow]Skipping {name}...[/yellow]"
+                                            )
+                                            status.start()  # Restart the status spinner
+                                            continue
+                                        elif choice == "3":
+                                            return False
+                                        elif choice in versions:
+                                            status.start()  # Restart the status spinner
+                                            status.update(
+                                                f"[yellow]Installing [white]{name}[/yellow]==[white]{choice}[/white]..."
+                                            )
+                                            process = subprocess.run(
+                                                [
+                                                    "pip",
+                                                    "install",
+                                                    f"{name}=={choice}",
+                                                ],
+                                                capture_output=True,
+                                                text=True,
+                                            )
+                                            if process.returncode == 0:
+                                                fixed.append(
+                                                    f"[green]✓ Installed {name}=={choice}[/green]"
+                                                )
+                                                # Update requirements.txt with the new version
+                                                packages = (
+                                                    self._parse_requirements()
+                                                )
+                                                packages[name] = f"=={choice}"
+                                                self._write_requirements(
+                                                    packages
+                                                )
+                                                continue
+                                            else:
+                                                console.print(
+                                                    f"\n[red]Failed to install {name}:[/red]\n{process.stderr}"
+                                                )
+                                        else:
+                                            console.print(
+                                                f"\n[red]Invalid version. Please choose from the available versions.[/red]"
+                                            )
+                                            status.start()  # Restart the status spinner
+                                            continue
+                                    else:
+                                        # In auto-confirm mode, skip incompatible packages
+                                        console.print(
+                                            f"[yellow]Auto-skipping incompatible package: {name}[/yellow]"
+                                        )
+                                        status.start()  # Restart the status spinner
+                                        continue
+                            console.print(
+                                f"\n[red]Failed to install {name}:[/red]\n{stderr}"
+                            )
+                        else:
+                            console.print(
+                                f"\n[red]Failed to install {name}:[/red]\n{stderr}"
+                            )
+
                         if not auto_confirm:
                             if not Confirm.ask(
                                 "Continue with remaining installations?"
