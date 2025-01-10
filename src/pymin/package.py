@@ -6,7 +6,6 @@ from typing import Dict, Optional, Set
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
-import pkg_resources
 from rich.prompt import Confirm
 import sys
 import time
@@ -1220,7 +1219,7 @@ class PackageManager:
                     (
                         required_version.lstrip("=")
                         if required_version
-                        else ("" if show_all else "[yellow]None[/yellow]")
+                        else ("[yellow]None[/yellow]" if name in main_packages else "")
                     ),
                     installed_version or "[yellow]None[/yellow]",
                     status,
@@ -1297,6 +1296,12 @@ class PackageManager:
         3. Fix version mismatches
         4. Remove redundant dependency declarations from requirements.txt
         """
+        if not Path(os.environ.get("VIRTUAL_ENV", "")).exists():
+            console.print(
+                "[red bold]No active virtual environment found.[/red bold]"
+            )
+            return False
+
         req_packages = self._parse_requirements()
         installed_packages = self._get_all_installed_packages()
         fixed = False
@@ -1319,6 +1324,21 @@ class PackageManager:
             direct_deps = get_package_dependencies(pkg)
             if direct_deps:
                 dependency_tree[pkg] = direct_deps
+
+        # Check for unlisted packages
+        for name, version in installed_packages.items():
+            normalized_name = normalize_package_name(name)
+            # Check if package:
+            # 1. Not in requirements.txt
+            # 2. Not a dependency of other packages
+            # 3. Not a system package
+            if (
+                name not in req_packages
+                and normalized_name
+                not in {normalize_package_name(d) for d in all_dependencies}
+                and normalized_name not in get_system_packages()
+            ):
+                unlisted_packages.append((name, version))
 
         # First identify all redundant packages
         redundant_deps = []
