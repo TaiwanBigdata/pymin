@@ -1320,11 +1320,13 @@ class PackageManager:
 
         # Get all dependencies of all installed packages
         all_dependencies = set()
-        dependency_tree = {}  # Map of packages to their direct dependencies
         for pkg in installed_packages:
             pkg_deps = self._get_all_dependencies_recursive(pkg)
             all_dependencies.update(pkg_deps)
-            # Build dependency tree
+
+        # Build dependency tree (for unlisted packages check)
+        dependency_tree = {}  # Map of packages to their direct dependencies
+        for pkg in installed_packages:
             direct_deps = get_package_dependencies(pkg)
             if direct_deps:
                 dependency_tree[pkg] = direct_deps
@@ -1346,67 +1348,13 @@ class PackageManager:
 
         # First identify all redundant packages
         redundant_deps = []
-        redundant_deps_map = (
-            {}
-        )  # Map of redundant packages to their dependencies
         for name, req_version in req_packages.items():
             normalized_name = normalize_package_name(name)
-            if normalized_name in {
+            # Use the same logic as list_packages
+            if name in req_packages and normalized_name in {
                 normalize_package_name(d) for d in all_dependencies
             }:
-                # Get this package's dependencies
-                pkg_deps = self._get_all_dependencies_recursive(name)
-                redundant_deps_map[name] = pkg_deps
                 redundant_deps.append((name, installed_packages.get(name, "")))
-
-        # Build dependency graph for redundant packages
-        dependency_graph = {}
-        for name, deps in redundant_deps_map.items():
-            dependency_graph[name] = {
-                other_name
-                for other_name, _ in redundant_deps
-                if normalize_package_name(other_name)
-                in {normalize_package_name(d) for d in deps}
-            }
-
-        # Find all packages that can be safely removed
-        def find_safe_to_remove(graph):
-            safe = set()
-            visited = set()
-
-            def visit(node):
-                if node in visited:
-                    return
-                visited.add(node)
-                # Visit all dependencies first
-                for dep in graph.get(node, set()):
-                    visit(dep)
-                # If all dependencies are safe to remove, this node is safe too
-                if all(dep in safe for dep in graph.get(node, set())):
-                    safe.add(node)
-
-            # Visit all nodes
-            for node in graph:
-                visit(node)
-            return safe
-
-        # Get all packages that can be safely removed
-        safe_packages = find_safe_to_remove(dependency_graph)
-
-        # Split redundant packages into safe and dependent
-        safe_to_remove = [
-            (name, version)
-            for name, version in redundant_deps
-            if name in safe_packages
-        ]
-        dependent_redundant = [
-            (name, version)
-            for name, version in redundant_deps
-            if name not in safe_packages
-        ]
-
-        # Update the redundant_deps list to only include safe to remove packages
-        redundant_deps = safe_to_remove
 
         # Filter unlisted packages to exclude dependencies
         filtered_unlisted = []
@@ -1497,24 +1445,6 @@ class PackageManager:
                 text.append(version, style=Style(color="white"))
                 text.append(
                     " (already provided as a dependency)", style=Style(dim=True)
-                )
-                text.append("\n")
-
-        if dependent_redundant:
-            text.append(
-                "\nSkipped Redundant Dependencies (ℹ):\n",
-                style=Style(color="blue", bold=True),
-            )
-            for name, version in dependent_redundant:
-                text.append("  ", style=Style(color="blue"))
-                text.append("ℹ", style=Style(color="blue"))
-                text.append(" ")
-                text.append(name, style=Style(color="white"))
-                text.append("==", style=Style(color="white"))
-                text.append(version, style=Style(color="white"))
-                text.append(
-                    " (dependency of other redundant packages)",
-                    style=Style(dim=True),
                 )
                 text.append("\n")
 
