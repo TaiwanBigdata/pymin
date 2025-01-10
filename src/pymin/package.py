@@ -1203,9 +1203,9 @@ class PackageManager:
                     redundant_deps += 1
 
                 # Dim the display if it's not a main package
-                display_name = name
+                display_name = f"[cyan]{name}[/cyan]"
                 if name not in main_packages:
-                    display_name = f"[dim]{name}[/dim]"
+                    display_name = f"[dim]{display_name}[/dim]"
                     if installed_version:
                         installed_version = f"[dim]{installed_version}[/dim]"
                     status = f"[dim]{status}[/dim]"
@@ -1219,7 +1219,11 @@ class PackageManager:
                     (
                         required_version.lstrip("=")
                         if required_version
-                        else ("[yellow]None[/yellow]" if name in main_packages else "")
+                        else (
+                            "[yellow]None[/yellow]"
+                            if name in main_packages
+                            else ""
+                        )
                     ),
                     installed_version or "[yellow]None[/yellow]",
                     status,
