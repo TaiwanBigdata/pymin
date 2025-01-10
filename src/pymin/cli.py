@@ -6,7 +6,7 @@ from rich.console import Console
 from rich.prompt import Confirm
 from .check import PackageNameChecker
 from .search import PackageSearcher
-from .venv import VenvManager
+from .venv import EnvManager
 from rich.table import Table
 from rich.text import Text
 from rich.panel import Panel
@@ -16,7 +16,7 @@ from pathlib import Path
 import sys
 from .package import PackageManager
 from typing import Optional
-from .utils import get_current_shell, get_environment_display_name
+from .utils import get_current_shell
 from rich.markup import escape
 import tomllib
 import requests
@@ -384,15 +384,24 @@ def search(name: str, threshold: float):
 
 
 @cli.command()
-@click.argument("name", default="env")
-def venv(name):
-    """Create a virtual environment with specified name"""
-    venv_path = Path(name)
+@click.argument("name", required=False)
+@click.option(
+    "-y",
+    "--auto-confirm",
+    is_flag=True,
+    help="Automatically confirm all prompts",
+)
+def venv(name, auto_confirm):
+    """Create a virtual environment with specified name (defaults to 'env')"""
+    # Get project name and set default environment name to 'env'
+    project_name = Path.cwd().name
+    venv_name = name if name else "env"
+    venv_path = Path(venv_name)
 
     # Check if virtual environment already exists
-    if venv_path.exists() and venv_path.is_dir():
-        if Confirm.ask(
-            f"\n[yellow]Virtual environment '{name}' already exists. Do you want to rebuild it?[/yellow]"
+    if EnvManager.exists():
+        if auto_confirm or Confirm.ask(
+            "\n[yellow]Virtual environment already exists. Do you want to rebuild it?[/yellow]"
         ):
             # Deactivate if current environment is active
             if os.environ.get("VIRTUAL_ENV") == str(venv_path.absolute()):
@@ -407,20 +416,21 @@ def venv(name):
 
             shutil.rmtree(venv_path)
             console.print(
-                f"[green]✓ Removed existing environment: {name}[/green]"
+                "[green bold]✓ Removed existing environment[/green bold]"
             )
         else:
             console.print("[yellow]Operation cancelled.[/yellow]")
             return
 
-    manager = VenvManager()
-    success, message = manager.create(name)
+    manager = EnvManager()
+    success, message = manager.create()
 
     if success:
-        venv_info = manager.get_environment_info()
+        venv_info = manager.get_env_info()
         text = Text.assemble(
             ("Virtual Environment: ", "dim"),
-            (name, "cyan"),
+            (project_name, "cyan"),
+            ("(env)", "dim white"),
             "\n",
             ("Python Version: ", "dim"),
             (venv_info["python_version"], "cyan"),
@@ -432,7 +442,8 @@ def venv(name):
             (str(venv_info["working_dir"]), "cyan"),
             "\n",
             ("Status: ", "dim"),
-            ("✓ Created", "green"),
+            ("✓", "green bold"),
+            (" Created", "green bold"),
         )
         panel = Panel.fit(
             text,
@@ -442,22 +453,14 @@ def venv(name):
         )
         console.print(panel)
 
-        # Prepare to activate virtual environment
-        activate_script = venv_path / "bin" / "activate"
-        shell, shell_name = get_current_shell()
-
-        # Check if requirements.txt exists
+        # Install requirements if they exist
         if Path("requirements.txt").exists():
-            if Confirm.ask(
+            if auto_confirm or Confirm.ask(
                 "\n[yellow]Found requirements.txt. Do you want to install the dependencies?[/yellow]"
             ):
-                # Activate virtual environment and upgrade pip
+                # Upgrade pip first
                 subprocess.run(
-                    [
-                        shell,
-                        "-c",
-                        f"source {activate_script} && pip install --upgrade pip",
-                    ],
+                    [venv_path / "bin" / "pip", "install", "--upgrade", "pip"],
                     check=True,
                 )
 
@@ -477,37 +480,18 @@ def venv(name):
                         package_manager.add(name, version)
                     else:
                         package_manager.add(package)
-
-        # Activate virtual environment
-        os.execl(
-            shell,
-            shell_name,
-            "-c",
-            f"source {activate_script} && exec {shell_name}",
-        )
     else:
-        text = Text.assemble(
-            ("Status: ", "dim"),
-            ("✗ Failed", "red"),
-            "\n",
-            ("Error: ", "dim"),
-            (message, "red"),
+        console.print(
+            f"[red]Failed to create virtual environment:[/red]\n{message}"
         )
-        panel = Panel.fit(
-            text,
-            title="Virtual Environment Creation Error",
-            title_align="left",
-            border_style="red",
-        )
-        console.print(panel)
 
 
 @cli.command()
 def info():
     """Show environment information"""
-    manager = VenvManager()
+    manager = EnvManager()
     # Only check for updates if explicitly requested
-    info = manager.get_environment_info(check_updates=False)
+    info = manager.get_env_info(check_updates=False)
 
     text = Text()
     text.append("\n")
@@ -634,32 +618,27 @@ def info():
 
 
 @cli.command()
-@click.argument("name", default="env")
-def activate(name):
-    """Activate the virtual environment"""
-    venv_path = Path(name)
+@click.argument("path", required=False)
+def activate(path):
+    """Activate the virtual environment (defaults to current directory's env)"""
+    # Default to 'env' in current directory if no path specified
+    venv_path = Path(path if path else "env")
 
     if not venv_path.exists():
         console.print(
-            f"[red]Virtual environment '{name}' does not exist.[/red]"
+            f"[red bold]Virtual environment '{venv_path}' does not exist.[/red bold]"
         )
         return
 
     if not (venv_path / "bin" / "activate").exists():
-        console.print(f"[red]Activation script not found in '{name}'.[/red]")
+        console.print(
+            f"[red bold]Activation script not found in '{venv_path}'.[/red bold]"
+        )
         return
 
-    # Import environment management utilities
-    from .venv import EnvTransitionManager
-
-    # Get current environment if any
-    current_env = (
-        Path(os.environ["VIRTUAL_ENV"]) if "VIRTUAL_ENV" in os.environ else None
-    )
-
-    # Handle environment transition
-    transition = EnvTransitionManager(current_env, venv_path)
-    transition.switch(action="Activating")
+    # Handle environment activation
+    env_manager = EnvManager.activate(venv_path)
+    env_manager.switch(action="Activating")
 
 
 @cli.command()
@@ -671,12 +650,9 @@ def deactivate():
 
     current_venv = Path(os.environ["VIRTUAL_ENV"])
 
-    # Import environment management utilities
-    from .venv import EnvTransitionManager
-
-    # Handle environment transition with None as target
-    transition = EnvTransitionManager(current_venv, None)
-    transition.switch(action="Deactivating")
+    # Handle environment transition
+    env_manager = EnvManager.deactivate()
+    env_manager.switch(action="Deactivating")
 
 
 @cli.command()
@@ -753,14 +729,15 @@ def add(packages):
 @click.argument("packages", nargs=-1, required=True)
 @click.option(
     "-y",
+    "--auto-confirm",
     is_flag=True,
     help="Automatically confirm all prompts",
 )
-def remove(packages, y: bool):
+def remove(packages, auto_confirm):
     """Remove packages from requirements.txt and uninstall them"""
     manager = PackageManager()
     for package in packages:
-        manager.remove(package, auto_confirm=y)
+        manager.remove(package, auto_confirm=auto_confirm)
 
 
 # Add 'rm' as an alias for 'remove'
@@ -788,13 +765,14 @@ def list_packages(all, tree):
 @cli.command()
 @click.option(
     "-y",
+    "--auto-confirm",
     is_flag=True,
     help="Automatically confirm all prompts",
 )
-def update(y: bool):
+def update(auto_confirm):
     """Update all packages to their latest versions"""
     manager = PackageManager()
-    manager.update_all(auto_confirm=y)
+    manager.update_all(auto_confirm=auto_confirm)
 
 
 # Add 'up' as an alias for 'update'
@@ -804,13 +782,14 @@ cli.add_command(update, "up")
 @cli.command()
 @click.option(
     "-y",
+    "--auto-confirm",
     is_flag=True,
     help="Automatically confirm all prompts",
 )
-def fix(y: bool):
+def fix(auto_confirm):
     """Fix package inconsistencies"""
     pm = PackageManager()
-    pm.fix_packages(auto_confirm=y)
+    pm.fix_packages(auto_confirm=auto_confirm)
 
 
 @cli.command()

@@ -15,6 +15,7 @@ from packaging.requirements import Requirement
 from rich.style import Style
 from .utils import get_current_shell
 from rich.panel import Panel
+from .venv import get_current_venv_display, EnvManager
 
 console = Console()
 
@@ -942,7 +943,7 @@ class PackageManager:
         venv_active = bool(active_venv)
 
         # Import environment management utilities
-        from .venv import get_current_venv_display, EnvTransitionManager
+        from .venv import get_current_venv_display, EnvManager
 
         if venv_active:
             active_venv_path = Path(active_venv)
@@ -958,11 +959,9 @@ class PackageManager:
                     cmd_args.append("-t")
                 cmd = " ".join(cmd_args)
 
-                # Handle environment transition
-                transition = EnvTransitionManager(
-                    active_venv_path, current_venv
-                )
-                if transition.switch(cmd):
+                # Handle environment activation
+                env_manager = EnvManager.activate()
+                if env_manager.switch(cmd):
                     return
             else:
                 # Store environment info for later display
@@ -983,8 +982,8 @@ class PackageManager:
                 cmd = " ".join(cmd_args)
 
                 # Handle environment activation
-                transition = EnvTransitionManager(None, current_venv)
-                if transition.switch(cmd, action="Activating"):
+                env_manager = EnvManager.activate()
+                if env_manager.switch(cmd, action="Activating"):
                     return
             else:
                 console.print(
