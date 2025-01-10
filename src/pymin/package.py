@@ -585,9 +585,10 @@ class PackageManager:
             return False
 
         packages = self._parse_requirements()
+        installed_packages = self._get_all_installed_packages()
         normalized_package = normalize_package_name(package)
 
-        # Find the package in requirements.txt (case-insensitive)
+        # Find the package in requirements.txt or installed packages (case-insensitive)
         package_to_remove = None
         for pkg in packages:
             if normalize_package_name(pkg) == normalized_package:
@@ -595,8 +596,15 @@ class PackageManager:
                 break
 
         if not package_to_remove:
+            # Check if package is installed but not in requirements.txt
+            for pkg in installed_packages:
+                if normalize_package_name(pkg) == normalized_package:
+                    package_to_remove = pkg
+                    break
+
+        if not package_to_remove:
             console.print(
-                f"[yellow]Package {package} not found in requirements.txt[/yellow]"
+                f"[yellow]Package {package} not found in requirements.txt or installed packages[/yellow]"
             )
             return False
 
@@ -614,7 +622,7 @@ class PackageManager:
             if normalized_package in {
                 normalize_package_name(d) for d in all_dependencies
             }:
-                # Only remove from requirements.txt
+                # Only remove from requirements.txt if it's there
                 if package_to_remove in packages:
                     del packages[package_to_remove]
                     self._write_requirements(packages)
@@ -623,6 +631,10 @@ class PackageManager:
                     )
                     console.print(
                         "[yellow]Removed from requirements.txt but not uninstalled.[/yellow]"
+                    )
+                else:
+                    console.print(
+                        f"[yellow]Package {package_to_remove} is a dependency used by other packages and cannot be removed.[/yellow]"
                     )
                 return True
 
@@ -656,7 +668,7 @@ class PackageManager:
                 f"[yellow]Removing [cyan]{package_to_remove}[/cyan]..."
             )
             with console.status(main_status, spinner="dots") as status:
-                # Remove from requirements.txt first
+                # Remove from requirements.txt if it's there
                 if package_to_remove in packages:
                     del packages[package_to_remove]
                     self._write_requirements(packages)
@@ -687,7 +699,7 @@ class PackageManager:
                         return False
 
             console.print(
-                f"[green]✓ Successfully removed {package_to_remove}[/green]"
+                f"[green]✓ Removed {package_to_remove}=={installed_packages[package_to_remove]}[/green]"
             )
             if deps_to_remove:
                 console.print(
