@@ -16,20 +16,12 @@ from pathlib import Path
 import sys
 from .package import PackageManager
 from typing import Optional
-from .utils import get_current_shell
-from rich.markup import escape
 import tomllib
 import requests
 import json
 from urllib.error import HTTPError
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
-from rich.style import Style
-from rich.padding import Padding
-import time
 from datetime import datetime, timedelta
+import time
 
 # Force color output
 console = Console(force_terminal=True, color_system="auto")
@@ -405,11 +397,7 @@ def venv(name, auto_confirm):
         ):
             # Deactivate if current environment is active
             if os.environ.get("VIRTUAL_ENV") == str(venv_path.absolute()):
-                shell, shell_name = get_current_shell()
-                deactivate_cmd = (
-                    f"source {venv_path}/bin/activate && deactivate"
-                )
-                subprocess.run([shell, "-c", deactivate_cmd])
+                EnvManager.deactivate(execute_shell=False)
 
             # Remove existing virtual environment
             import shutil
@@ -426,6 +414,7 @@ def venv(name, auto_confirm):
     success, message = manager.create()
 
     if success:
+        # Prepare all environment information first
         venv_info = manager.get_env_info()
         text = Text.assemble(
             ("Virtual Environment: ", "dim"),
@@ -458,28 +447,20 @@ def venv(name, auto_confirm):
             if auto_confirm or Confirm.ask(
                 "\n[yellow]Found requirements.txt. Do you want to install the dependencies?[/yellow]"
             ):
-                # Upgrade pip first
-                subprocess.run(
-                    [venv_path / "bin" / "pip", "install", "--upgrade", "pip"],
-                    check=True,
+                # First activate without shell replacement
+                EnvManager.activate(venv_path, execute_shell=False)
+                success, message = manager.install_requirements()
+                if not success:
+                    console.print(f"[red]{message}[/red]")
+                    return
+
+                # Show success message
+                console.print(
+                    "[green]✓ Dependencies installed successfully[/green]"
                 )
 
-                # Install packages in virtual environment
-                os.environ["VIRTUAL_ENV"] = str(venv_path)
-                os.environ["PATH"] = f"{venv_path}/bin:{os.environ['PATH']}"
-                package_manager = PackageManager()
-                with open("requirements.txt") as f:
-                    packages = [
-                        line.strip()
-                        for line in f
-                        if line.strip() and not line.startswith("#")
-                    ]
-                for package in packages:
-                    if "==" in package:
-                        name, version = package.split("==")
-                        package_manager.add(name, version)
-                    else:
-                        package_manager.add(package)
+        # Finally, activate the environment with shell replacement
+        EnvManager.activate(venv_path, execute_shell=True)
     else:
         console.print(
             f"[red]Failed to create virtual environment:[/red]\n{message}"
@@ -636,9 +617,8 @@ def activate(path):
         )
         return
 
-    # Handle environment activation
-    env_manager = EnvManager.activate(venv_path)
-    env_manager.switch(action="Activating")
+    # Handle environment activation (with shell replacement)
+    EnvManager.activate(venv_path, execute_shell=True)
 
 
 @cli.command()
@@ -648,11 +628,8 @@ def deactivate():
         console.print("[yellow]No active virtual environment found.[/yellow]")
         return
 
-    current_venv = Path(os.environ["VIRTUAL_ENV"])
-
-    # Handle environment transition
-    env_manager = EnvManager.deactivate()
-    env_manager.switch(action="Deactivating")
+    # Handle environment deactivation (with shell replacement)
+    EnvManager.deactivate(execute_shell=True)
 
 
 @cli.command()

@@ -2,20 +2,19 @@
 from pathlib import Path
 import subprocess
 import os
-from typing import Dict, Optional, Set
+from typing import Dict, Optional, Set, Tuple
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 from rich.prompt import Confirm
+from rich.panel import Panel
 import sys
 import time
 import importlib
 import importlib.metadata
 from packaging.requirements import Requirement
 from rich.style import Style
-from .utils import get_current_shell
-from rich.panel import Panel
-from .venv import get_current_venv_display, EnvManager
+from .venv import EnvManager
 
 console = Console()
 
@@ -2054,3 +2053,7 @@ class PackageManager:
         except Exception as e:
             console.print(f"[red]Error updating packages:[/red]\n{str(e)}")
             return False
+
+    def _get_shell(self) -> Tuple[str, str]:
+        """Get current shell information"""
+        return EnvManager._get_shell()

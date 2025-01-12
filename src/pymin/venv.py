@@ -5,7 +5,7 @@ import sys
 import venv
 import tomllib
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple, Literal
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
@@ -462,19 +462,282 @@ class EnvManager:
             "pip_version": pip_version,
         }
 
+    def _set_env_vars(self, env_path: Path) -> None:
+        """Set environment variables for virtual environment activation
+
+        Args:
+            env_path: Path to the virtual environment
+        """
+        os.environ["VIRTUAL_ENV"] = str(env_path.absolute())
+        os.environ["PATH"] = f"{env_path}/bin:{os.environ['PATH']}"
+        if "PYTHONHOME" in os.environ:
+            del os.environ["PYTHONHOME"]
+
+    def _unset_env_vars(self, env_path: Path) -> None:
+        """Unset environment variables for virtual environment deactivation
+
+        Args:
+            env_path: Path to the virtual environment
+        """
+        if "VIRTUAL_ENV" in os.environ:
+            del os.environ["VIRTUAL_ENV"]
+        if "PYTHONHOME" in os.environ:
+            del os.environ["PYTHONHOME"]
+        # Update PATH
+        paths = os.environ["PATH"].split(":")
+        paths = [p for p in paths if str(env_path) not in p]
+        os.environ["PATH"] = ":".join(paths)
+
+    def _check_python_executable(self) -> bool:
+        """Check if Python executable exists and is valid
+
+        Returns:
+            bool: True if Python executable is valid
+        """
+        if self.to_env is None:
+            return False
+
+        python_path = self.to_env / "bin" / "python"
+        if not python_path.exists():
+            self.display.show_error(
+                f"Python executable not found in environment: {self.to_env}"
+            )
+            return False
+
+        try:
+            result = subprocess.run(
+                [str(python_path), "--version"],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                self.display.show_error(
+                    f"Python executable validation failed: {result.stderr}"
+                )
+                return False
+        except Exception as e:
+            self.display.show_error(
+                f"Failed to validate Python executable: {str(e)}"
+            )
+            return False
+
+        return True
+
+    @staticmethod
+    def _get_shell() -> Tuple[str, str]:
+        """Get the current shell executable path and name"""
+        shell = os.environ.get("SHELL", "/bin/sh")
+        shell_name = Path(shell).name
+        return shell, shell_name
+
+    def _get_shell_commands(
+        self,
+        *,
+        action: Literal["activate", "deactivate"],
+        env_path: Path,
+        shell_name: str,
+    ) -> Tuple[dict[str, str], str]:
+        """Get shell-specific commands for environment operations
+
+        Args:
+            action: The action to perform ("activate" or "deactivate")
+            env_path: Path to the environment
+            shell_name: Name of the shell (e.g. "zsh", "bash")
+
+        Returns:
+            Tuple containing:
+            - Dictionary of environment variables to set
+            - Shell-specific PS1/PROMPT command
+        """
+        if action == "activate":
+            # Get environment name for display
+            env_name = env_path.resolve().parent.name
+
+            # Prepare environment variables
+            env_vars = {
+                "VIRTUAL_ENV": str(env_path.resolve()),
+                "PATH": f"{env_path}/bin:{os.environ.get('PATH', '')}",
+            }
+
+            # Remove PYTHONHOME if exists
+            if "PYTHONHOME" in os.environ:
+                env_vars["PYTHONHOME"] = ""
+
+            # Handle PS1 based on shell type
+            if shell_name == "zsh":
+                ps1_cmd = f'export PROMPT="({env_name}(env)) $PROMPT"'
+            else:
+                # Assume bash/sh compatible
+                ps1_cmd = f'export PS1="({env_name}(env)) $PS1"'
+
+        else:  # deactivate
+            # Get original PATH (remove venv path)
+            old_path = os.environ.get("PATH", "")
+            venv_bin = f"{env_path}/bin:"
+            new_path = old_path.replace(venv_bin, "", 1)
+
+            # Prepare environment cleanup
+            env_vars = {
+                "PATH": new_path,
+                "VIRTUAL_ENV": "",  # Clear VIRTUAL_ENV
+            }
+
+            # Handle PS1 based on shell type
+            if shell_name == "zsh":
+                ps1_cmd = (
+                    'export PROMPT="${PROMPT#\\(${VIRTUAL_ENV:t:h}\\(env\\)) }"'
+                )
+            else:
+                # Assume bash/sh compatible
+                ps1_cmd = 'export PS1="${PS1#\\(${VIRTUAL_ENV##*/}\\(env\\)) }"'
+
+        return env_vars, ps1_cmd
+
     @classmethod
-    def activate(cls, env_path: Optional[Path] = None) -> "EnvManager":
-        """Create manager for activating an environment
+    def activate(
+        cls, env_path: Optional[Path] = None, *, execute_shell: bool = True
+    ) -> bool:
+        """Activate the specified virtual environment
+
+        This method handles the activation of a virtual environment by:
+        1. Validating the environment and its Python executable
+        2. Setting up environment variables (PATH, VIRTUAL_ENV)
+        3. Optionally executing the shell activation script
 
         Args:
             env_path: Path to environment, defaults to current directory's env
+            execute_shell: Whether to execute shell command and replace current process
+
+        Returns:
+            bool: True if activation was successful, False otherwise
+
+        Note:
+            When execute_shell is True, this method will replace the current process
+            with a new shell process that has the virtual environment activated.
+            When False, it will only set environment variables without process replacement.
         """
-        return cls(env_path or Path("env"))
+        manager = cls(env_path or Path("env"))
+
+        # Basic environment validation
+        if not manager._validate():
+            return False
+
+        # Additional Python executable validation
+        if not manager._check_python_executable():
+            return False
+
+        try:
+            # Check if trying to switch to the same environment
+            if (
+                manager.from_env
+                and manager.to_env
+                and manager.from_env.samefile(manager.to_env)
+            ):
+                manager.display.show_error(
+                    f"Environment is already active: {manager.from_env.parent.name}(env)"
+                )
+                return False
+
+            if not execute_shell:
+                # Set environment variables
+                manager._set_env_vars(manager.to_env)
+                manager.display.show_success(
+                    manager.from_env, manager.to_env, "Setting up"
+                )
+            else:
+                # For shell replacement, directly set environment variables
+                manager.display.show_success(
+                    manager.from_env, manager.to_env, "Activating shell with"
+                )
+                shell, shell_name = manager._get_shell()
+
+                # Get shell-specific commands
+                env_vars, ps1_cmd = manager._get_shell_commands(
+                    action="activate",
+                    env_path=manager.to_env,
+                    shell_name=shell_name,
+                )
+
+                # Convert env_vars to shell export commands
+                exports = " ".join(
+                    f"export {k}='{v}';" for k, v in env_vars.items()
+                )
+
+                # Execute shell with environment variables
+                os.execl(
+                    shell,
+                    shell_name,
+                    "-c",
+                    f"{exports} {ps1_cmd} && exec {shell_name}",
+                )
+            return True
+
+        except Exception as e:
+            # Clean up on failure
+            if not execute_shell and manager.to_env:
+                manager._unset_env_vars(manager.to_env)
+            manager.display.show_error(
+                f"Failed to activate environment: {str(e)}"
+            )
+
+        return False
 
     @classmethod
-    def deactivate(cls) -> "EnvManager":
-        """Create manager for deactivating current environment"""
-        return cls(None)
+    def deactivate(
+        cls, env_path: Optional[Path] = None, *, execute_shell: bool = True
+    ) -> bool:
+        """Deactivate the current virtual environment
+
+        Args:
+            env_path: Path to environment, defaults to current directory's env
+            execute_shell: Whether to execute shell command and replace current process
+        """
+        manager = cls(env_path or Path("env"))
+
+        if not manager.from_env:
+            manager.display.show_error("No active virtual environment")
+            return False
+
+        try:
+            if not execute_shell:
+                # Just unset environment variables
+                manager._unset_env_vars(manager.from_env)
+                manager.display.show_success(
+                    manager.from_env, None, "Cleaning up"
+                )
+            else:
+                # For shell replacement
+                manager.display.show_success(
+                    manager.from_env, None, "Deactivating shell with"
+                )
+                shell, shell_name = manager._get_shell()
+
+                # Get shell-specific commands
+                env_vars, ps1_cmd = manager._get_shell_commands(
+                    action="deactivate",
+                    env_path=manager.from_env,
+                    shell_name=shell_name,
+                )
+
+                # Convert env_vars to shell export commands
+                exports = " ".join(
+                    f"export {k}='{v}';" for k, v in env_vars.items()
+                )
+
+                # Execute shell with cleaned environment
+                os.execl(
+                    shell,
+                    shell_name,
+                    "-c",
+                    f"{exports} {ps1_cmd} && exec {shell_name}",
+                )
+            return True
+
+        except Exception as e:
+            manager.display.show_error(
+                f"Failed to deactivate environment: {str(e)}"
+            )
+            return False
 
     @classmethod
     def exists(cls, env_path: Optional[Path] = None) -> bool:
@@ -508,9 +771,7 @@ class EnvManager:
 
     def _prepare_shell_command(self, cmd: str, action: str) -> Optional[str]:
         """Prepare shell command for environment operation"""
-        from .utils import get_current_shell
-
-        shell, shell_name = get_current_shell()
+        shell, shell_name = self._get_shell()
 
         if action == "Deactivating":
             if not self.from_env or not self.from_env.exists():
@@ -531,9 +792,7 @@ class EnvManager:
 
     def _execute_shell_command(self, shell_cmd: str) -> None:
         """Execute shell command for environment operation"""
-        from .utils import get_current_shell
-
-        shell, shell_name = get_current_shell()
+        shell, shell_name = self._get_shell()
         os.execl(shell, shell_name, "-c", shell_cmd)
 
     def switch(self, cmd: str = "", action: str = "Switching") -> bool:
@@ -572,3 +831,58 @@ class EnvManager:
             )
 
         return False
+
+    def install_requirements(self) -> Tuple[bool, str]:
+        """Install packages from requirements.txt
+
+        Returns:
+            Tuple of (success, message)
+        """
+        if not Path("requirements.txt").exists():
+            return False, "No requirements.txt found"
+
+        try:
+            # Get Python path from virtual environment
+            python_path = self.to_env / "bin" / "python"
+            if not python_path.exists():
+                return False, "Python interpreter not found"
+
+            # Upgrade pip first
+            result = subprocess.run(
+                [str(python_path), "-m", "pip", "install", "--upgrade", "pip"],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                return False, f"Failed to upgrade pip: {result.stderr}"
+
+            # Read packages from requirements.txt
+            with open("requirements.txt") as f:
+                packages = [
+                    line.strip()
+                    for line in f
+                    if line.strip() and not line.startswith("#")
+                ]
+
+            # Install packages using the activated environment
+            from .package import PackageManager
+
+            package_manager = PackageManager()
+            console.print("")  # Add empty line for better formatting
+
+            for package in packages:
+                with console.status(
+                    f"[yellow]Installing {package}...[/yellow]", spinner="dots"
+                ):
+                    if "==" in package:
+                        name, version = package.split("==")
+                        success, error = package_manager.add(name, version)
+                    else:
+                        success, error = package_manager.add(package)
+
+                    if not success:
+                        return False, f"Failed to install {package}: {error}"
+
+            return True, "Successfully installed all packages"
+        except Exception as e:
+            return False, f"Failed to install packages: {str(e)}"
