@@ -1072,17 +1072,14 @@ class EnvManager:
             console.print("")  # Add empty line for better formatting
 
             for package in packages:
-                with console.status(
-                    f"[yellow]Installing {package}...[/yellow]", spinner="dots"
-                ):
-                    if "==" in package:
-                        name, version = package.split("==")
-                        success, error = package_manager.add(name, version)
-                    else:
-                        success, error = package_manager.add(package)
+                if "==" in package:
+                    name, version = package.split("==")
+                    success, error = package_manager.add(name, version)
+                else:
+                    success, error = package_manager.add(package)
 
-                    if not success:
-                        return False, f"Failed to install {package}: {error}"
+                if not success:
+                    return False, f"Failed to install {package}: {error}"
 
             return True, "Successfully installed all packages"
         except Exception as e:

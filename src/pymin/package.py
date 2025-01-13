@@ -386,8 +386,15 @@ class PackageManager:
                 if pre_installed_version:
                     # If version is specified and different from installed
                     if version and version != pre_installed_version:
-                        main_status = f"[yellow]Installing [cyan]{package_name}[/cyan]==[white]{version}[/white]..."
-                        status.update(main_status)
+                        status.update(
+                            Text.assemble(
+                                ("Installing ", "yellow"),
+                                (f"{package_name}", "cyan"),
+                                ("==", "cyan"),
+                                (f"{version}", "cyan"),
+                                ("...", "yellow"),
+                            )
+                        )
                         process = subprocess.Popen(
                             ["pip", "install", f"{package_name}=={version}"],
                             stdout=subprocess.PIPE,
@@ -407,7 +414,18 @@ class PackageManager:
                                     dep = output.split()[1].strip()
                                     if dep != package_name:
                                         status.update(
-                                            f"{main_status}\n[dim]Installing dependency: {dep}[/dim]"
+                                            Text.assemble(
+                                                ("Installing ", "yellow"),
+                                                (f"{package_name}", "cyan"),
+                                                ("==", "cyan"),
+                                                (f"{version}", "cyan"),
+                                                ("...\n", "yellow"),
+                                                (
+                                                    "Installing dependency: ",
+                                                    "dim",
+                                                ),
+                                                (f"{dep}", "dim"),
+                                            )
                                         )
 
                         _, stderr = process.communicate()
@@ -441,10 +459,13 @@ class PackageManager:
                     else:
                         cmd.append(package_name)
 
-                    main_status = (
-                        f"[yellow]Installing [cyan]{package_name}[/cyan]..."
+                    status.update(
+                        Text.assemble(
+                            ("Installing ", "yellow"),
+                            (f"{package_name}", "cyan"),
+                            ("...", "yellow"),
+                        )
                     )
-                    status.update(main_status)
                     process = subprocess.Popen(
                         cmd,
                         stdout=subprocess.PIPE,
@@ -464,7 +485,15 @@ class PackageManager:
                                 dep = output.split()[1].strip()
                                 if dep != package_name:
                                     status.update(
-                                        f"{main_status}\n[dim]Installing dependency: {dep}[/dim]"
+                                        Text.assemble(
+                                            ("Installing ", "yellow"),
+                                            (f"{package_name}", "cyan"),
+                                            ("==", "cyan"),
+                                            (f"{version}", "cyan"),
+                                            ("...\n", "yellow"),
+                                            ("Installing dependency: ", "dim"),
+                                            (f"{dep}", "dim"),
+                                        )
                                     )
 
                     stdout, stderr = process.communicate()
@@ -1521,7 +1550,7 @@ class PackageManager:
         ) as status:
             # Fix version mismatches first (to avoid dependency conflicts)
             for name, req_version, _ in version_mismatches:
-                main_status = f"[yellow]Updating [white]{name}[/yellow] to [white]{req_version}[/white]..."
+                main_status = f"[yellow]Updating [cyan]{name}[/cyan] to [cyan]{req_version}[/cyan]..."
                 status.update(main_status)
                 try:
                     process = subprocess.Popen(
@@ -1543,19 +1572,109 @@ class PackageManager:
                                 dep = output.split()[1].strip()
                                 if dep != name:
                                     status.update(
-                                        f"{main_status}\n[dim]Installing dependency: {dep}[/dim]"
+                                        Text.assemble(
+                                            ("Installing ", "yellow"),
+                                            (f"{name}", "cyan"),
+                                            ("==", "cyan"),
+                                            (f"{req_version}", "cyan"),
+                                            ("...\n", "yellow"),
+                                            ("Installing dependency: ", "dim"),
+                                            (f"{dep}", "dim"),
+                                        )
                                     )
 
                     _, stderr = process.communicate()
                     if process.returncode != 0:
-                        console.print(
-                            f"\n[red]Failed to update {name}:[/red]\n{stderr}"
-                        )
-                        if not auto_confirm:
-                            if not Confirm.ask(
-                                "Continue with remaining updates?"
-                            ):
-                                return False
+                        # Check for Python version compatibility issues
+                        if "Requires-Python" in stderr:
+                            console.print(
+                                f"\n[red]Failed to update {name}:[/red]\n{stderr}"
+                            )
+
+                            # Get available versions
+                            result = subprocess.run(
+                                ["pip", "index", "versions", name],
+                                capture_output=True,
+                                text=True,
+                            )
+
+                            if result.returncode == 0:
+                                versions = []
+                                for line in result.stdout.split("\n"):
+                                    if "Available versions:" in line:
+                                        versions = [
+                                            v.strip()
+                                            for v in line.split(":")[1]
+                                            .strip()
+                                            .split(",")
+                                        ]
+                                        break
+
+                                if versions:
+                                    console.print(
+                                        "\n[cyan]Available versions:[/cyan]"
+                                    )
+                                    # Try each version from newest to oldest
+                                    for v in versions:
+                                        console.print(f"  • Trying {v}")
+                                        process = subprocess.run(
+                                            [
+                                                "pip",
+                                                "install",
+                                                f"{name}=={v.strip()}",
+                                            ],
+                                            capture_output=True,
+                                            text=True,
+                                        )
+                                        if process.returncode == 0:
+                                            console.print(
+                                                f"[green]✓ Successfully installed {name}=={v.strip()}[/green]"
+                                            )
+                                            fixed.append(
+                                                f"[green]✓ Updated {name} to {v.strip()}[/green]"
+                                            )
+                                            # Update requirements.txt with the working version
+                                            packages = (
+                                                self._parse_requirements()
+                                            )
+                                            packages[name] = f"=={v.strip()}"
+                                            self._write_requirements(packages)
+                                            status.stop()  # Stop the status spinner
+                                            return True  # Exit the function after successful installation
+                                        elif (
+                                            "Requires-Python"
+                                            not in process.stderr
+                                        ):
+                                            # If error is not about Python version, stop trying
+                                            break
+
+                                    if not any(
+                                        msg in fixed
+                                        for msg in [
+                                            f"[green]✓ Updated {name} to"
+                                        ]
+                                    ):
+                                        console.print(
+                                            f"\n[red]Error: Could not find a compatible version of {name}[/red]"
+                                        )
+                                        if (
+                                            not auto_confirm
+                                            and not Confirm.ask(
+                                                "Continue with remaining updates?"
+                                            )
+                                        ):
+                                            return False
+                                        continue
+
+                        else:
+                            console.print(
+                                f"\n[red]Failed to update {name}:[/red]\n{stderr}"
+                            )
+                            if not auto_confirm:
+                                if not Confirm.ask(
+                                    "Continue with remaining updates?"
+                                ):
+                                    return False
                     else:
                         fixed.append(
                             f"[green]✓ Updated {name} to {req_version}[/green]"
@@ -1570,7 +1689,7 @@ class PackageManager:
 
             # Fix missing packages
             for name, version in missing_packages:
-                main_status = f"[yellow]Installing [white]{name}[/yellow]==[white]{version}[/white]..."
+                main_status = f"[yellow]Installing [cyan]{name}[/cyan]==[cyan]{version}[/cyan]..."
                 status.update(main_status)
                 try:
                     process = subprocess.Popen(
@@ -1592,7 +1711,15 @@ class PackageManager:
                                 dep = output.split()[1].strip()
                                 if dep != name:
                                     status.update(
-                                        f"{main_status}\n[dim]Installing dependency: {dep}[/dim]"
+                                        Text.assemble(
+                                            ("Installing ", "yellow"),
+                                            (f"{name}", "cyan"),
+                                            ("==", "cyan"),
+                                            (f"{version}", "cyan"),
+                                            ("...\n", "yellow"),
+                                            ("Installing dependency: ", "dim"),
+                                            (f"{dep}", "dim"),
+                                        )
                                     )
 
                     _, stderr = process.communicate()
@@ -2030,7 +2157,15 @@ class PackageManager:
                                 dep = output.split()[1].strip()
                                 if dep != name:
                                     status.update(
-                                        f"{main_status}\n[dim]Installing dependency: {dep}[/dim]"
+                                        Text.assemble(
+                                            ("Installing ", "yellow"),
+                                            (f"{name}", "cyan"),
+                                            ("==", "cyan"),
+                                            (f"{latest_version}", "cyan"),
+                                            ("...\n", "yellow"),
+                                            ("Installing dependency: ", "dim"),
+                                            (f"{dep}", "dim"),
+                                        )
                                     )
 
                     _, stderr = process.communicate()
