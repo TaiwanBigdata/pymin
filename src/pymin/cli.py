@@ -6,7 +6,7 @@ from rich.console import Console
 from rich.prompt import Confirm
 from .check import PackageNameChecker
 from .search import PackageSearcher
-from .venv import EnvManager
+from .venv import EnvManager, EnvDisplay
 from rich.table import Table
 from rich.text import Text
 from rich.panel import Panel
@@ -377,94 +377,45 @@ def search(name: str, threshold: float):
 
 @cli.command()
 @click.argument("name", required=False)
-@click.option(
-    "-y",
-    "--auto-confirm",
-    is_flag=True,
-    help="Automatically confirm all prompts",
-)
-def venv(name, auto_confirm):
-    """Create a virtual environment with specified name (defaults to 'env')"""
-    # Get project name and set default environment name to 'env'
-    project_name = Path.cwd().name
-    venv_name = name if name else "env"
-    venv_path = Path(venv_name)
+@click.option("-y", "--yes", is_flag=True, help="Skip confirmation prompt")
+def venv(name: Optional[str], yes: bool) -> None:
+    """Create and activate a virtual environment"""
+    venv_path = Path(name or "env")
 
-    # Check if virtual environment already exists
-    if EnvManager.exists():
-        if auto_confirm or Confirm.ask(
-            "\n[yellow]Virtual environment already exists. Do you want to rebuild it?[/yellow]"
+    # Check if environment exists
+    if venv_path.exists():
+        if not yes and not Confirm.ask(
+            "\nEnvironment env already exists. Rebuild?"
         ):
-            # Deactivate if current environment is active
-            if os.environ.get("VIRTUAL_ENV") == str(venv_path.absolute()):
-                EnvManager.deactivate(execute_shell=False)
-
-            # Remove existing virtual environment
-            import shutil
-
-            shutil.rmtree(venv_path)
-            console.print(
-                "[green bold]✓ Removed existing environment[/green bold]"
-            )
-        else:
-            console.print("[yellow]Operation cancelled.[/yellow]")
             return
 
-    manager = EnvManager()
-    success, message = manager.create()
-
-    if success:
-        # Prepare all environment information first
-        venv_info = manager.get_env_info()
-        text = Text.assemble(
-            ("Virtual Environment: ", "dim"),
-            (project_name, "cyan"),
-            ("(env)", "dim white"),
-            "\n",
-            ("Python Version: ", "dim"),
-            (venv_info["python_version"], "cyan"),
-            "\n",
-            ("Pip Version: ", "dim"),
-            (venv_info["pip_version"], "cyan"),
-            "\n",
-            ("Location: ", "dim"),
-            (str(venv_info["working_dir"]), "cyan"),
-            "\n",
-            ("Status: ", "dim"),
-            ("✓", "green bold"),
-            (" Created", "green bold"),
-        )
-        panel = Panel.fit(
-            text,
-            title="Virtual Environment Creation Results",
-            title_align="left",
-            border_style="bright_blue",
-        )
-        console.print(panel)
-
-        # Install requirements if they exist
-        if Path("requirements.txt").exists():
-            if auto_confirm or Confirm.ask(
-                "\n[yellow]Found requirements.txt. Do you want to install the dependencies?[/yellow]"
-            ):
-                # First activate without shell replacement
-                EnvManager.activate(venv_path, execute_shell=False)
-                success, message = manager.install_requirements()
-                if not success:
-                    console.print(f"[red]{message}[/red]")
-                    return
-
-                # Show success message
-                console.print(
-                    "[green]✓ Dependencies installed successfully[/green]"
-                )
-
-        # Finally, activate the environment with shell replacement
-        EnvManager.activate(venv_path, execute_shell=True)
+        # Create environment with rebuild flag
+        success, message = EnvManager.create(venv_path, rebuild=True)
     else:
-        console.print(
-            f"[red]Failed to create virtual environment:[/red]\n{message}"
-        )
+        # Create new environment
+        success, message = EnvManager.create(venv_path)
+
+    if not success:
+        console.print(f"\n[red]Error: {message}[/red]")
+        return
+
+    # Execute steps with environment
+    steps = [
+        lambda: EnvManager(venv_path).install_requirements()[0],
+        lambda: console.print("\n[green]✓ Environment setup complete![/green]"),
+    ]
+
+    # If interrupted, activate the environment
+    def on_interrupt():
+        EnvManager.activate(venv_path, execute_shell=True)
+
+    EnvManager.execute_steps(
+        venv_path,
+        steps,
+        activate_message="Activating shell with environment",
+        on_interrupt=on_interrupt,
+        force=True,
+    )
 
 
 @cli.command()
@@ -556,7 +507,9 @@ def info():
         text.append("  Active Environment:", "dim")
         text.append("\n")
         text.append("    Name: ", "dim")
-        text.append(active_venv_path.name, "cyan")
+        text.append(
+            Text.from_markup(EnvDisplay.format_env_name(active_venv_path))
+        )
         text.append("\n")
         text.append("    Path: ", "dim")
         text.append(str(active_venv_path), "dim white")
@@ -569,7 +522,7 @@ def info():
     current_venv = Path("env")
     if current_venv.exists() and current_venv.is_dir():
         text.append("    Name: ", "dim")
-        text.append("env", "cyan")
+        text.append(Text.from_markup(EnvDisplay.format_env_name(current_venv)))
         text.append("\n")
         text.append("    Path: ", "dim")
         text.append(str(current_venv.absolute()), "dim white")

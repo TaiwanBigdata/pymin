@@ -5,7 +5,7 @@ import sys
 import venv
 import tomllib
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple, Literal
+from typing import Dict, List, Optional, Set, Tuple, Literal, Union, Callable
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
@@ -77,13 +77,195 @@ class VenvStatus:
         }
 
 
+class VenvDetector:
+    """Virtual environment detector for finding and validating virtual environments"""
+
+    class VenvPattern:
+        """Virtual environment naming patterns and configurations"""
+
+        # Default name recommended by PEP 405
+        DEFAULT = ".venv"
+
+        # Standard patterns in order of preference
+        STANDARD_PATTERNS = [
+            ".venv",  # PEP 405 recommendation
+            "venv",  # Python venv default
+            ".env",  # Legacy pattern
+            "env",  # Legacy pattern
+        ]
+
+        # Common prefixes and suffixes for custom environments
+        CUSTOM_PREFIXES = [".", ""]
+        CUSTOM_SUFFIXES = ["venv", "env"]
+
+        @classmethod
+        def get_custom_patterns(cls) -> list[str]:
+            """Generate patterns for custom virtual environment names
+
+            Returns:
+                List of glob patterns for finding custom virtual environments
+            """
+            patterns = []
+            # Add exact matches first
+            patterns.extend(cls.STANDARD_PATTERNS)
+            # Add custom combinations
+            for prefix in cls.CUSTOM_PREFIXES:
+                for suffix in cls.CUSTOM_SUFFIXES:
+                    pattern = f"*{prefix}{suffix}"
+                    if pattern not in patterns:
+                        patterns.append(pattern)
+            return patterns
+
+    @classmethod
+    def is_venv_dir(cls, path: Path) -> bool:
+        """Check if a directory is a valid virtual environment
+
+        Args:
+            path: Directory path to check
+
+        Returns:
+            bool: True if directory is a valid virtual environment
+        """
+        return (path / "bin" / "python").exists() and (
+            path / "bin" / "activate"
+        ).exists()
+
+    @classmethod
+    def find_in_directory(cls, directory: Path) -> Optional[Path]:
+        """Find virtual environment in the specified directory
+
+        This method will:
+        1. Check if the directory itself is a virtual environment
+        2. Look for standard virtual environment names
+        3. Look for custom virtual environment patterns
+        4. Return None if no valid environment is found
+
+        Args:
+            directory: Directory to search in
+
+        Returns:
+            Path to virtual environment if found, None otherwise
+        """
+        # Resolve to absolute path
+        directory = directory.absolute()
+
+        # Case 1: Check if the directory itself is a virtual environment
+        if cls.is_venv_dir(directory):
+            return directory
+
+        # Case 2: Check standard patterns in order of preference
+        for name in cls.VenvPattern.STANDARD_PATTERNS:
+            venv_path = directory / name
+            if cls.is_venv_dir(venv_path):
+                return venv_path
+
+        # Case 3: Look for custom patterns
+        for pattern in cls.VenvPattern.get_custom_patterns():
+            # Skip patterns we've already checked
+            if pattern in cls.VenvPattern.STANDARD_PATTERNS:
+                continue
+            for venv_path in directory.glob(pattern):
+                if cls.is_venv_dir(venv_path):
+                    return venv_path
+
+        return None
+
+    @classmethod
+    def get_env_info(cls, path: Path) -> dict:
+        """Get information about a virtual environment
+
+        Args:
+            path: Path to virtual environment
+
+        Returns:
+            Dictionary containing:
+            - project_name: Name of the project (parent directory)
+            - env_name: Name of the virtual environment directory
+            - exists: Whether the environment exists and is valid
+            - is_standard: Whether the environment uses a standard name
+        """
+        return {
+            "project_name": path.parent.absolute().name,
+            "env_name": path.name,
+            "exists": cls.is_venv_dir(path),
+            "is_standard": path.name in cls.VenvPattern.STANDARD_PATTERNS,
+        }
+
+
 class EnvDisplay:
     """Handles all environment display related functionality"""
 
     @staticmethod
-    def format_env_name(project_name: str) -> str:
-        """Format environment name with consistent style"""
-        return f"[cyan]{project_name}[/cyan][dim](env)[/dim]"
+    def format_env_name(path: Union[str, Path, None] = None) -> str:
+        """Format environment name with consistent style
+
+        This method can handle different types of input:
+        1. None: Will look for virtual environment in current directory
+        2. Path object: Can be either:
+           - Path to the virtual environment directory
+           - Path to the project directory (will auto-detect venv)
+        3. String: Will be converted to Path and handled as above
+
+        Args:
+            path: Path to either:
+                 - Virtual environment directory
+                 - Project directory (will auto-detect venv)
+                 If None, uses current directory
+
+        Returns:
+            Formatted environment name string with Rich markup
+        """
+        # Convert to Path if string
+        if isinstance(path, str):
+            path = Path(path)
+
+        # Default to current directory if None
+        if path is None:
+            path = Path.cwd()
+
+        # Try to find virtual environment
+        venv_path = VenvDetector.find_in_directory(path)
+        if venv_path is None:
+            # If no environment found, use the path itself
+            env_info = VenvDetector.get_env_info(path)
+            return f"[cyan]{env_info['project_name']}[/cyan][dim](no env)[/dim]"
+
+        # Get environment info
+        env_info = VenvDetector.get_env_info(venv_path)
+        return f"[cyan]{env_info['project_name']}[/cyan][dim]({env_info['env_name']})[/dim]"
+
+    @staticmethod
+    def format_env_status(path: Union[str, Path, None] = None) -> str:
+        """Format environment status with lightning bolt, name and full path
+
+        Args:
+            path: Path to either:
+                 - Virtual environment directory
+                 - Project directory (will auto-detect venv)
+                 If None, uses current directory
+
+        Returns:
+            Formatted status string with Rich markup including lightning bolt,
+            environment name and full path
+        """
+        # Convert to Path if string
+        if isinstance(path, str):
+            path = Path(path)
+
+        # Default to current directory if None
+        if path is None:
+            path = Path.cwd()
+
+        # Try to find virtual environment
+        venv_path = VenvDetector.find_in_directory(path)
+        if venv_path is None:
+            # If no environment found, use the path itself
+            env_info = VenvDetector.get_env_info(path)
+            return f"[bright_blue]⚡[/bright_blue] [cyan]{env_info['project_name']}[/cyan][dim](no env)[/dim] [dim white]{path.absolute()}[/dim white]"
+
+        # Get environment info
+        env_info = VenvDetector.get_env_info(venv_path)
+        return f"[bright_blue]⚡[/bright_blue] [cyan]{env_info['project_name']}[/cyan][dim]({env_info['env_name']})[/dim] [dim white]{path.absolute()}[/dim white]"
 
     @staticmethod
     def format_env_switch(
@@ -93,14 +275,12 @@ class EnvDisplay:
         if from_env is None:
             from_display = "[dim]none[/dim]"
         else:
-            from_name = from_env.parent.absolute().name
-            from_display = EnvDisplay.format_env_name(from_name)
+            from_display = EnvDisplay.format_env_name(from_env)
 
         if to_env is None:
             to_display = "[dim]none[/dim]"
         else:
-            to_name = to_env.parent.absolute().name
-            to_display = EnvDisplay.format_env_name(to_name)
+            to_display = EnvDisplay.format_env_name(to_env)
 
         return f"{from_display} → {to_display}"
 
@@ -119,7 +299,7 @@ class EnvDisplay:
     ) -> None:
         """Display success message for environment change"""
         console.print(
-            f"\n[green]✓ {action} environment: {EnvDisplay.format_env_switch(from_env, to_env)}[/green]"
+            f"[green]✓ {action} environment: {EnvDisplay.format_env_switch(from_env, to_env)}[/green]"
         )
 
     @staticmethod
@@ -134,34 +314,9 @@ class EnvDisplay:
             formatted_message = (
                 f"{prefix}: [cyan]{env_name}[/cyan][dim](env)[/dim]{suffix}"
             )
-            console.print(f"\n[yellow]⚠ {formatted_message}[/yellow]")
+            console.print(f"[yellow]⚠ {formatted_message}[/yellow]")
         else:
-            console.print(f"\n[yellow]⚠ {message}[/yellow]")
-
-
-def display_env_switch(
-    from_env: Path, to_env: Path, action: str = "Switching"
-) -> None:
-    """Display environment switch with consistent style
-
-    Args:
-        from_env: Source environment path
-        to_env: Target environment path
-        action: Action being performed ("Switching" or "Activating")
-    """
-    EnvDisplay.show_warning(from_env, to_env, action)
-
-
-def get_current_venv_display() -> str:
-    """Get current virtual environment display string
-
-    Returns:
-        A string showing current venv status, or empty if no venv is active
-    """
-    if venv_path := os.environ.get("VIRTUAL_ENV"):
-        display = EnvDisplay()
-        return display.format_env_name(Path(venv_path).parent.name)
-    return ""
+            console.print(f"[yellow]⚠ {message}[/yellow]")
 
 
 class EnvManager:
@@ -280,22 +435,113 @@ class EnvManager:
 
         return status
 
-    def create(self) -> Tuple[bool, str]:
-        """Create a new virtual environment"""
+    @classmethod
+    def create(
+        cls,
+        env_path: Optional[Path] = None,
+        *,
+        rebuild: bool = False,
+    ) -> Tuple[bool, str]:
+        """Create a new virtual environment
+
+        Args:
+            env_path: Path to environment, defaults to current directory's env
+            rebuild: Whether to rebuild if environment exists
+
+        Returns:
+            Tuple of (success, message)
+        """
+        import shutil
+
+        manager = cls(env_path or Path("env"))
+
+        # Check if environment exists
+        if manager.to_env.exists():
+            if not rebuild:
+                return False, "Environment already exists"
+
+            # Check if environment is active
+            current_env = cls.get_current_env()
+            if current_env and current_env.samefile(manager.to_env):
+                console.print("\n[yellow]Active environment detected[/yellow]")
+
+                # Deactivate the environment
+                console.print("\n[blue]Deactivating environment...[/blue]")
+                if not cls.deactivate(execute_shell=False):
+                    return False, "Failed to deactivate environment"
+
+            # Remove existing environment
+            try:
+                shutil.rmtree(manager.to_env)
+                console.print(
+                    "[green]✓ Removing existing environment...[/green]"
+                )
+            except Exception as e:
+                return False, f"Failed to remove existing environment: {str(e)}"
+
+        # Create new environment
         try:
-            # Check if directory already exists
-            if self.to_env.exists():
-                return False, f"Directory '{self.to_env}' already exists"
+            venv.create(manager.to_env, with_pip=True)
 
-            # Create virtual environment
-            venv.create(self.to_env, with_pip=True)
+            # Get environment info using VenvDetector
+            env_info = VenvDetector.get_env_info(manager.to_env)
 
-            # Update status
-            self._initialize_status()
+            # Get Python and pip versions
+            python_path = manager.to_env / "bin" / "python"
+            python_version = None
+            pip_version = None
 
-            return True, f"Virtual environment created at {self.to_env}"
+            if python_path.exists():
+                # Get Python version
+                result = subprocess.run(
+                    [str(python_path), "--version"],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode == 0:
+                    python_version = result.stdout.strip().replace(
+                        "Python ", ""
+                    )
+
+                # Get pip version
+                result = subprocess.run(
+                    [str(python_path), "-m", "pip", "--version"],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode == 0:
+                    pip_version = result.stdout.split()[1]
+
+            # Display environment info
+            text = Text.assemble(
+                ("Virtual Environment: ", "dim"),
+                (env_info["project_name"], "cyan"),
+                (f"({env_info['env_name']})", "dim"),
+                "\n",
+                ("Python Version: ", "dim"),
+                (python_version or "Unknown", "cyan"),
+                "\n",
+                ("Pip Version: ", "dim"),
+                (pip_version or "Unknown", "cyan"),
+                "\n",
+                ("Location: ", "dim"),
+                (str(manager.to_env.absolute()), "cyan"),
+                "\n",
+                ("Status: ", "dim"),
+                ("✓", "green bold"),
+                (" Created", "green bold"),
+            )
+            panel = Panel.fit(
+                text,
+                title="Virtual Environment Status",
+                title_align="left",
+                border_style="bright_blue",
+            )
+            console.print(panel)
+
+            return True, "Environment created successfully"
         except Exception as e:
-            return False, f"Failed to create virtual environment: {str(e)}"
+            return False, f"Failed to create environment: {str(e)}"
 
     def _get_pip_info(self) -> Dict:
         """Get pip version and update information"""
@@ -331,47 +577,93 @@ class EnvManager:
 
         return info
 
-    def get_env_info(self, check_updates: bool = False) -> Dict:
-        """Get comprehensive environment information
+    def get_env_info(self, *, check_updates: bool = False) -> Dict[str, str]:
+        """Get information about the virtual environment
 
         Args:
-            check_updates: Whether to check for pip updates (slower)
+            check_updates: Whether to check for pip updates
+
+        Returns:
+            Dictionary containing environment information
         """
-        # Set update check flag
-        self._check_updates = check_updates
+        python_path = self.to_env / "bin" / "python"
+        if not python_path.exists():
+            raise VenvError("Python interpreter not found")
 
-        status = self.check_health()
+        try:
+            # Get Python version
+            result = subprocess.run(
+                [str(python_path), "--version"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            python_version = result.stdout.strip().replace("Python ", "")
 
-        # Get platform information
-        platform_name = {
-            "darwin": "macOS",
-            "linux": "Linux",
-            "win32": "Windows",
-        }.get(sys.platform, sys.platform)
+            # Get pip version and info
+            result = subprocess.run(
+                [str(python_path), "-m", "pip", "--version"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            pip_version = result.stdout.split()[1]
+            pip_location = result.stdout.split()[3]
 
-        # Get CPU architecture (cache it)
-        if not hasattr(self, "_arch"):
-            try:
-                self._arch = subprocess.check_output(
-                    ["uname", "-m"], text=True
-                ).strip()
-            except:
-                self._arch = "unknown"
+            # Get project name from parent directory
+            project_name = self.to_env.parent.absolute().name
 
-        # Get pip information
-        pip_info = self._get_pip_info()
+            # Get platform info
+            import platform
 
-        return {
-            "python_version": status.python_version,
-            "platform": f"{platform_name} ({self._arch})",
-            "virtual_env": os.environ.get("VIRTUAL_ENV"),
-            "working_dir": str(self.project_root),
-            "pip_version": pip_info.get("version"),
-            "pip_location": pip_info.get("location"),
-            "pip_update": pip_info.get("update_available"),
-            "user_scripts": Path.home() / ".local/bin",
-            "status": status.to_dict(),
-        }
+            platform_info = f"{platform.system()} {platform.release()}"
+
+            # Get user scripts directory
+            user_scripts = str(self.to_env / "bin")
+
+            info = {
+                "project_name": project_name,
+                "python_version": python_version,
+                "pip_version": pip_version,
+                "pip_location": pip_location,
+                "platform": platform_info,
+                "working_dir": str(self.to_env.absolute()),
+                "user_scripts": user_scripts,
+                "virtual_env": os.environ.get("VIRTUAL_ENV"),
+            }
+
+            # Check for pip updates if requested
+            if check_updates:
+                try:
+                    result = subprocess.run(
+                        [
+                            str(python_path),
+                            "-m",
+                            "pip",
+                            "list",
+                            "--outdated",
+                            "--format=json",
+                        ],
+                        capture_output=True,
+                        text=True,
+                    )
+                    if result.returncode == 0:
+                        import json
+
+                        outdated = json.loads(result.stdout)
+                        for pkg in outdated:
+                            if pkg["name"] == "pip":
+                                info["pip_update"] = pkg["latest_version"]
+                                break
+                except Exception:
+                    pass
+
+            return info
+
+        except subprocess.CalledProcessError as e:
+            raise VenvError(f"Failed to get environment info: {e.stderr}")
+        except Exception as e:
+            raise VenvError(f"Failed to get environment info: {str(e)}")
 
     @classmethod
     def get_current_env(cls) -> Optional[Path]:
@@ -597,25 +889,7 @@ class EnvManager:
     def activate(
         cls, env_path: Optional[Path] = None, *, execute_shell: bool = True
     ) -> bool:
-        """Activate the specified virtual environment
-
-        This method handles the activation of a virtual environment by:
-        1. Validating the environment and its Python executable
-        2. Setting up environment variables (PATH, VIRTUAL_ENV)
-        3. Optionally executing the shell activation script
-
-        Args:
-            env_path: Path to environment, defaults to current directory's env
-            execute_shell: Whether to execute shell command and replace current process
-
-        Returns:
-            bool: True if activation was successful, False otherwise
-
-        Note:
-            When execute_shell is True, this method will replace the current process
-            with a new shell process that has the virtual environment activated.
-            When False, it will only set environment variables without process replacement.
-        """
+        """Activate the specified virtual environment"""
         manager = cls(env_path or Path("env"))
 
         # Basic environment validation
@@ -642,12 +916,16 @@ class EnvManager:
                 # Set environment variables
                 manager._set_env_vars(manager.to_env)
                 manager.display.show_success(
-                    manager.from_env, manager.to_env, "Setting up"
+                    manager.from_env,
+                    manager.to_env,
+                    "Setting up",
                 )
             else:
                 # For shell replacement, directly set environment variables
                 manager.display.show_success(
-                    manager.from_env, manager.to_env, "Activating shell with"
+                    manager.from_env,
+                    manager.to_env,
+                    "Activating shell with",
                 )
                 shell, shell_name = manager._get_shell()
 
@@ -668,7 +946,7 @@ class EnvManager:
                     shell,
                     shell_name,
                     "-c",
-                    f"{exports} {ps1_cmd} && exec {shell_name}",
+                    f"unset VIRTUAL_ENV PATH; {exports} {ps1_cmd} && exec {shell}",
                 )
             return True
 
@@ -683,53 +961,39 @@ class EnvManager:
         return False
 
     @classmethod
-    def deactivate(
-        cls, env_path: Optional[Path] = None, *, execute_shell: bool = True
-    ) -> bool:
-        """Deactivate the current virtual environment
+    def deactivate(cls, *, execute_shell: bool = True) -> bool:
+        """Deactivate the current virtual environment"""
+        manager = cls()
 
-        Args:
-            env_path: Path to environment, defaults to current directory's env
-            execute_shell: Whether to execute shell command and replace current process
-        """
-        manager = cls(env_path or Path("env"))
-
+        # Check if any environment is active
         if not manager.from_env:
-            manager.display.show_error("No active virtual environment")
+            manager.display.show_error("No active environment to deactivate")
             return False
 
         try:
             if not execute_shell:
-                # Just unset environment variables
+                # Clean environment variables
                 manager._unset_env_vars(manager.from_env)
                 manager.display.show_success(
-                    manager.from_env, None, "Cleaning up"
+                    manager.from_env,
+                    None,
+                    "Setting up",
                 )
             else:
-                # For shell replacement
+                # For shell replacement, directly unset environment variables
                 manager.display.show_success(
-                    manager.from_env, None, "Deactivating shell with"
+                    manager.from_env,
+                    None,
+                    "Deactivating shell with",
                 )
                 shell, shell_name = manager._get_shell()
 
-                # Get shell-specific commands
-                env_vars, ps1_cmd = manager._get_shell_commands(
-                    action="deactivate",
-                    env_path=manager.from_env,
-                    shell_name=shell_name,
-                )
-
-                # Convert env_vars to shell export commands
-                exports = " ".join(
-                    f"export {k}='{v}';" for k, v in env_vars.items()
-                )
-
-                # Execute shell with cleaned environment
+                # Execute shell with clean environment
                 os.execl(
                     shell,
                     shell_name,
                     "-c",
-                    f"{exports} {ps1_cmd} && exec {shell_name}",
+                    f"unset VIRTUAL_ENV PATH; exec {shell}",
                 )
             return True
 
@@ -768,69 +1032,6 @@ class EnvManager:
             return False
 
         return True
-
-    def _prepare_shell_command(self, cmd: str, action: str) -> Optional[str]:
-        """Prepare shell command for environment operation"""
-        shell, shell_name = self._get_shell()
-
-        if action == "Deactivating":
-            if not self.from_env or not self.from_env.exists():
-                return f"unset VIRTUAL_ENV && unset PYTHONHOME && export PATH=$(echo $PATH | tr ':' '\n' | grep -v {self.from_env}/bin | tr '\n' ':' | sed 's/:$//') && exec {shell_name}"
-            else:
-                activate_script = self.from_env / "bin" / "activate"
-                return f"source {activate_script} && deactivate && exec {shell_name}"
-        else:
-            if self.to_env is None:
-                return None
-
-            activate_script = self.to_env / "bin" / "activate"
-            return (
-                f"source {activate_script} && {cmd} && exec {shell_name}"
-                if cmd
-                else f"source {activate_script} && exec {shell_name}"
-            )
-
-    def _execute_shell_command(self, shell_cmd: str) -> None:
-        """Execute shell command for environment operation"""
-        shell, shell_name = self._get_shell()
-        os.execl(shell, shell_name, "-c", shell_cmd)
-
-    def switch(self, cmd: str = "", action: str = "Switching") -> bool:
-        """Handle environment switching process"""
-        try:
-            if not self._validate():
-                return False
-
-            # Check if trying to switch to the same environment
-            if (
-                self.from_env
-                and self.to_env
-                and self.from_env.samefile(self.to_env)
-            ):
-                if action == "Deactivating":
-                    # For deactivation, set to_env to None to show proper transition
-                    self.to_env = None
-                else:
-                    self.display.show_error(
-                        f"Environment is already active: {self.from_env.parent.name}(env)"
-                    )
-                    return False
-
-            if not cmd or self.display.show_confirmation_prompt(cmd):
-                shell_cmd = self._prepare_shell_command(cmd, action)
-                if shell_cmd:
-                    self.display.show_success(
-                        self.from_env, self.to_env, action
-                    )
-                    self._execute_shell_command(shell_cmd)
-                    return True
-
-        except Exception as e:
-            self.display.show_error(
-                f"Failed to {action.lower()} environment: {str(e)}"
-            )
-
-        return False
 
     def install_requirements(self) -> Tuple[bool, str]:
         """Install packages from requirements.txt
@@ -886,3 +1087,93 @@ class EnvManager:
             return True, "Successfully installed all packages"
         except Exception as e:
             return False, f"Failed to install packages: {str(e)}"
+
+    @staticmethod
+    def execute_steps(
+        env_path: Path,
+        steps: list[Union[str, Callable]],
+        *,
+        activate_message: str = "Activating shell with",
+        on_interrupt: Optional[Callable] = None,
+        force: bool = False,
+    ) -> None:
+        """Execute multiple steps in the same shell with environment activated"""
+        manager = EnvManager(env_path)
+
+        # Basic environment validation
+        if not manager._validate():
+            return
+
+        # Additional Python executable validation
+        if not manager._check_python_executable():
+            return
+
+        try:
+            # Only check active environment if not forcing
+            if not force and manager.from_env and manager.to_env:
+                if manager.from_env.samefile(manager.to_env):
+                    manager.display.show_error(
+                        f"Environment is already active: {manager.from_env.parent.name}(env)"
+                    )
+                    return
+
+            # First set environment variables
+            manager._set_env_vars(manager.to_env)
+
+            # Get shell information
+            shell, shell_name = manager._get_shell()
+
+            # Get shell-specific commands
+            env_vars, ps1_cmd = manager._get_shell_commands(
+                action="activate",
+                env_path=manager.to_env,
+                shell_name=shell_name,
+            )
+
+            # Execute Python callable steps first
+            for step in steps:
+                if callable(step):
+                    try:
+                        step()
+                    except Exception as e:
+                        raise Exception(f"Step execution failed: {str(e)}")
+
+            # Prepare shell commands
+            shell_commands = [cmd for cmd in steps if isinstance(cmd, str)]
+
+            # Convert env_vars to shell export commands
+            exports = []
+            for k, v in env_vars.items():
+                exports.append(f"export {k}='{v}'")
+
+            # Combine all commands
+            all_commands = [
+                *exports,  # Environment variables
+                ps1_cmd,  # Shell prompt
+                *shell_commands,  # Additional shell commands
+                f"exec {shell_name}",  # Replace shell
+            ]
+
+            # Execute all commands in sequence
+            manager.display.show_success(
+                None if not manager.from_env else manager.from_env,
+                manager.to_env,
+                activate_message,
+            )
+            os.execl(shell, shell_name, "-c", "; ".join(all_commands))
+
+        except KeyboardInterrupt:
+            # Handle interrupt
+            manager._unset_env_vars(manager.to_env)
+            manager.display.show_error("Operation interrupted by user")
+            if on_interrupt:
+                on_interrupt()
+            return
+
+        except Exception as e:
+            # Clean up on failure
+            manager._unset_env_vars(manager.to_env)
+            manager.display.show_error(f"Failed to execute steps: {str(e)}")
+            if on_interrupt:
+                on_interrupt()
+            return

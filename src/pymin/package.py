@@ -15,6 +15,7 @@ import importlib.metadata
 from packaging.requirements import Requirement
 from rich.style import Style
 from .venv import EnvManager
+from .venv import EnvDisplay
 
 console = Console()
 
@@ -942,7 +943,7 @@ class PackageManager:
         venv_active = bool(active_venv)
 
         # Import environment management utilities
-        from .venv import get_current_venv_display, EnvManager
+        from .venv import EnvManager
 
         if venv_active:
             active_venv_path = Path(active_venv)
@@ -958,13 +959,16 @@ class PackageManager:
                     cmd_args.append("-t")
                 cmd = " ".join(cmd_args)
 
-                # Handle environment activation
-                env_manager = EnvManager.activate()
-                if env_manager.switch(cmd):
-                    return
+                # Handle environment activation with execute_steps
+                EnvManager.execute_steps(
+                    current_venv,
+                    [cmd],
+                    activate_message="Activating shell with",
+                )
+                return
             else:
                 # Store environment info for later display
-                env_display = get_current_venv_display()
+                env_display = EnvDisplay.format_env_status(active_venv_path)
 
         if not venv_active:
             console.print("\n[yellow]⚠ Virtual Environment Status:[/yellow]")
@@ -980,10 +984,13 @@ class PackageManager:
                     cmd_args.append("-t")
                 cmd = " ".join(cmd_args)
 
-                # Handle environment activation
-                env_manager = EnvManager.activate()
-                if env_manager.switch(cmd, action="Activating"):
-                    return
+                # Handle environment activation with execute_steps
+                EnvManager.execute_steps(
+                    current_venv,
+                    [cmd],
+                    activate_message="Activating shell with",
+                )
+                return
             else:
                 console.print(
                     "[dim]No virtual environment found in current directory.[/dim]"
