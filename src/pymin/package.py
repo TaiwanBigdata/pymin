@@ -1639,8 +1639,7 @@ class PackageManager:
                                             )
                                             packages[name] = f"=={v.strip()}"
                                             self._write_requirements(packages)
-                                            status.stop()  # Stop the status spinner
-                                            return True  # Exit the function after successful installation
+                                            break  # Break the version trying loop
                                         elif (
                                             "Requires-Python"
                                             not in process.stderr
@@ -1853,13 +1852,29 @@ class PackageManager:
                             return False
 
             # Update requirements.txt
-            if unlisted_packages or redundant_deps:
+            if (
+                unlisted_packages or redundant_deps or fixed
+            ):  # Add fixed to condition
                 status.update("[yellow]Updating requirements.txt...[/yellow]")
                 try:
                     packages = self._parse_requirements()
+
                     # Add unlisted packages
                     for name, version in unlisted_packages:
                         packages[name] = f"=={version}"
+
+                    # Update version mismatches in requirements.txt
+                    for msg in fixed:
+                        if "Updated" in msg:
+                            # Extract package name and version from fixed message
+                            import re
+
+                            match = re.search(
+                                r"Updated ([^ ]+) to ([^ \]]+)", msg
+                            )
+                            if match:
+                                name, version = match.groups()
+                                packages[name] = f"=={version}"
 
                     # Handle redundant dependencies
                     for name, current_version in redundant_deps:
