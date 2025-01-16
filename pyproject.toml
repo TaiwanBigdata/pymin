@@ -68,6 +68,7 @@ Repository = "https://github.com/TaiwanBigdata/pymin.git"
 [project.scripts]
 pymin = "pymin.cli:cli"
 pm = "pymin.cli:cli"
+pmm = "pymin.cli_modern:cli"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
