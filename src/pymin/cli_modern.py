@@ -1,7 +1,10 @@
 # Modern command line interface
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, List
 import click
+from rich.table import Table
+from rich.text import Text
+from rich.box import HEAVY_HEAD
 
 from .modern.core import (
     PackageManager,
@@ -11,7 +14,9 @@ from .modern.core import (
     PackageError,
     EnvironmentError,
     RequirementsError,
+    VenvDetector,
 )
+from .modern.core.display import format_dependency_tree, format_summary
 from .modern.ui import console
 
 
@@ -139,9 +144,7 @@ def fix(venv: Optional[str], project: str):
         )
 
         # Check for conflicts
-        analyzer = DependencyAnalyzer(
-            venv_path=project_path / venv if venv else None
-        )
+        analyzer = DependencyAnalyzer(manager)
         conflicts = analyzer.check_conflicts()
 
         if not conflicts:
@@ -179,32 +182,109 @@ def fix(venv: Optional[str], project: str):
 
 
 @pmm.command()
+@click.option(
+    "-a",
+    "--all",
+    is_flag=True,
+    help="List all installed packages (including dependencies)",
+)
+@click.option(
+    "-t",
+    "--tree",
+    is_flag=True,
+    help="Show dependency tree",
+)
 @venv_options
 @project_options
-def list(venv: Optional[str], project: str):
+def list(all: bool, tree: bool, venv: Optional[str], project: str):
     """List installed packages."""
     try:
         project_path = Path(project)
-        manager = PackageManager(
-            venv_path=project_path / venv if venv else None
-        )
-        packages = manager.list_installed()
+        venv_path = project_path / venv if venv else None
 
-        if not packages:
-            console.info("No packages installed")
+        # Detect and validate virtual environment
+        if not venv_path:
+            venv_path = VenvDetector.find_in_directory(project_path)
+
+        if not venv_path or not venv_path.exists():
+            console.print("[yellow]No virtual environment found[/yellow]")
             return
 
-        table = console.create_table(
-            "Installed Packages",
-            show_header=True,
-        )
-        table.add_column("Package")
-        table.add_column("Version")
+        # Create package manager with virtual environment
+        manager = PackageManager(venv_path=venv_path)
 
+        if tree:
+            # Show dependency tree for all top-level packages
+            packages = manager.list_installed(top_level_only=True)
+            if not packages:
+                console.print("[yellow]No packages installed[/yellow]")
+                return
+
+            # Get requirements
+            reqs = manager.get_requirements()
+
+            # Build trees for all packages
+            analyzer = DependencyAnalyzer(manager)
+            trees = []
+            for name in sorted(packages.keys()):
+                tree = analyzer.build_dependency_tree(name)
+                trees.append(tree)
+
+            # Format and display tree
+            table, total_deps = format_dependency_tree(trees, reqs)
+            console.print(table)
+
+            # Print summary
+            format_summary(trees, reqs, total_deps)
+
+            return
+
+        # List packages
+        packages = manager.list_installed(top_level_only=not all)
+        if not packages:
+            console.print("[yellow]No packages installed[/yellow]")
+            return
+
+        # Create package table
+        table = Table(
+            title="Package Dependencies",
+            show_header=True,
+            padding=(0, 2),
+            title_style="bold cyan",
+            box=HEAVY_HEAD,
+            expand=False,
+            header_style="bold",
+        )
+        table.add_column("Package", style="cyan")
+        table.add_column("Required")
+        table.add_column("Installed", style="green")
+        table.add_column("Status", justify="center")
+
+        # Get requirements
+        reqs = manager.get_requirements()
+        not_in_reqs = 0
+
+        # Add packages to table
         for name, version in sorted(packages.items()):
-            table.add_row(name, version)
+            required = reqs.get(name, "None")
+            status = Text("△", style="bold") if required == "None" else ""
+            if status:
+                not_in_reqs += 1
+            table.add_row(name, required, version, status)
 
         console.print(table)
+
+        # Print summary with proper spacing and bullet points
+        console.print("\nSummary:")
+        console.print("  • Total Packages: " + str(len(packages)))
+        if not_in_reqs:
+            console.print(f"  • Not in requirements.txt (△): {not_in_reqs}")
+
+        # Print tip with proper spacing
+        if not_in_reqs:
+            console.print(
+                "\nTip: Run pmm fix to resolve package inconsistencies\n"
+            )
 
     except Exception as e:
         console.error(str(e))
@@ -666,16 +746,42 @@ def tree(
     """Show dependency tree."""
     try:
         project_path = Path(project)
-        analyzer = DependencyAnalyzer(
+        manager = PackageManager(
             venv_path=project_path / venv if venv else None
         )
+        analyzer = DependencyAnalyzer(manager)
 
-        # Build and format tree
-        tree = analyzer.build_dependency_tree(
-            package,
-            max_depth=depth,
-            include_versions=not no_versions,
-        )
+        # Build tree
+        tree = analyzer.build_dependency_tree(package)
+
+        # Format tree
+        def format_tree(
+            pkg_info: Dict, prefix: str = "", is_last: bool = True
+        ) -> List[str]:
+            result = []
+
+            # Format current package
+            branch = "└── " if is_last else "├── "
+            version = (
+                f" ({pkg_info['installed_version']})"
+                if pkg_info["installed_version"] and not no_versions
+                else ""
+            )
+            result.append(f"{prefix}{branch}{pkg_info['name']}{version}")
+
+            # Format dependencies
+            if pkg_info["dependencies"]:
+                new_prefix = prefix + ("    " if is_last else "│   ")
+                for i, dep in enumerate(pkg_info["dependencies"]):
+                    if depth is not None and len(prefix) // 4 >= depth:
+                        continue
+                    is_last_dep = i == len(pkg_info["dependencies"]) - 1
+                    result.extend(format_tree(dep, new_prefix, is_last_dep))
+
+            return result
+
+        # Create formatted tree
+        formatted_tree = format_tree(tree)
 
         # Create title panel
         title = f"Dependency Tree for {package}"
@@ -683,7 +789,7 @@ def tree(
             title += f" (max depth: {depth})"
 
         panel = console.create_panel(
-            analyzer.format_tree(tree),
+            "\n".join(formatted_tree),
             title=title,
         )
         console.print(panel)

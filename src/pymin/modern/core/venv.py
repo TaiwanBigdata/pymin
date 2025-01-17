@@ -12,6 +12,121 @@ from .utils import get_venv_site_packages
 from ..ui import console
 
 
+class VenvDetector:
+    """Virtual environment detector for finding and validating virtual environments"""
+
+    class VenvPattern:
+        """Virtual environment naming patterns and configurations"""
+
+        # Default name recommended by PEP 405
+        DEFAULT = ".venv"
+
+        # Standard patterns in order of preference
+        STANDARD_PATTERNS = [
+            ".venv",  # PEP 405 recommendation
+            "venv",  # Python venv default
+            ".env",  # Legacy pattern
+            "env",  # Legacy pattern
+        ]
+
+        # Common prefixes and suffixes for custom environments
+        CUSTOM_PREFIXES = [".", ""]
+        CUSTOM_SUFFIXES = ["venv", "env"]
+
+        @classmethod
+        def get_custom_patterns(cls) -> list[str]:
+            """Generate patterns for custom virtual environment names
+
+            Returns:
+                List of glob patterns for finding custom virtual environments
+            """
+            patterns = []
+            # Add exact matches first
+            patterns.extend(cls.STANDARD_PATTERNS)
+            # Add custom combinations
+            for prefix in cls.CUSTOM_PREFIXES:
+                for suffix in cls.CUSTOM_SUFFIXES:
+                    pattern = f"*{prefix}{suffix}"
+                    if pattern not in patterns:
+                        patterns.append(pattern)
+            return patterns
+
+    @classmethod
+    def is_venv_dir(cls, path: Path) -> bool:
+        """Check if a directory is a valid virtual environment
+
+        Args:
+            path: Directory path to check
+
+        Returns:
+            bool: True if directory is a valid virtual environment
+        """
+        return (path / "bin" / "python").exists() and (
+            path / "bin" / "activate"
+        ).exists()
+
+    @classmethod
+    def find_in_directory(cls, directory: Path) -> Optional[Path]:
+        """Find virtual environment in the specified directory
+
+        This method will:
+        1. Check if the directory itself is a virtual environment
+        2. Look for standard virtual environment names
+        3. Look for custom virtual environment patterns
+        4. Return None if no valid environment is found
+
+        Args:
+            directory: Directory to search in
+
+        Returns:
+            Path to virtual environment if found, None otherwise
+        """
+        # Resolve to absolute path
+        directory = directory.absolute()
+
+        # Case 1: Check if the directory itself is a virtual environment
+        if cls.is_venv_dir(directory):
+            return directory
+
+        # Case 2: Check standard patterns in order of preference
+        for name in cls.VenvPattern.STANDARD_PATTERNS:
+            venv_path = directory / name
+            if cls.is_venv_dir(venv_path):
+                return venv_path
+
+        # Case 3: Look for custom patterns
+        for pattern in cls.VenvPattern.get_custom_patterns():
+            # Skip patterns we've already checked
+            if pattern in cls.VenvPattern.STANDARD_PATTERNS:
+                continue
+            for venv_path in directory.glob(pattern):
+                if cls.is_venv_dir(venv_path):
+                    return venv_path
+
+        return None
+
+    @classmethod
+    def get_env_info(cls, path: Path) -> dict:
+        """Get information about a virtual environment
+
+        Args:
+            path: Path to virtual environment
+
+        Returns:
+            Dictionary containing:
+            - project_name: Name of the project (parent directory)
+            - env_name: Name of the virtual environment directory
+            - exists: Whether the environment exists and is valid
+            - is_standard: Whether the environment uses a standard name
+        """
+        return {
+            "project_name": path.parent.absolute().name,
+            "env_name": path.name,
+            "exists": cls.is_venv_dir(path),
+            "is_standard": path.name in cls.VenvPattern.STANDARD_PATTERNS,
+        }
+
+
 class VenvManager:
     """Manages Python virtual environments."""
 

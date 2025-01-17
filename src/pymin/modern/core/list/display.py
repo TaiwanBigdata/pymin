@@ -81,32 +81,47 @@ class ListDisplay:
 
         console.print(table)
 
-    def show_tree(
-        self,
-        package: str,
-        max_depth: Optional[int] = None,
-        show_versions: bool = True,
-    ) -> None:
-        """
-        Show dependency tree.
+    def show_tree(self) -> None:
+        """Show packages in tree format."""
+        # Get top-level packages
+        packages = self._collector.get_main_packages()
 
-        Args:
-            package: Package name
-            max_depth: Maximum depth to show
-            show_versions: Whether to show version constraints
-        """
-        # Format tree
-        tree = self._formatter.format_dependency_tree(
-            package,
-            max_depth=max_depth,
-            show_versions=show_versions,
-        )
+        if not packages:
+            console.info("No packages found")
+            return
 
-        # Create title
-        title = f"Dependency Tree for {package}"
-        if max_depth is not None:
-            title += f" (max depth: {max_depth})"
+        console.print("\n[bold cyan]Package Dependency Tree[/]\n")
 
-        # Display tree
-        panel = console.create_panel(tree, title=title)
-        console.print(panel)
+        for name, version in packages.items():
+            try:
+                # Get package tree using PackageManager's method
+                tree = self._collector._pkg_manager.get_package_tree(name)
+
+                # Print package name with version
+                console.print(f" {name} ({version})")
+
+                # Print dependencies
+                if tree[name]:  # If has dependencies
+                    for i, dep in enumerate(tree[name]):
+                        is_last = i == len(tree[name]) - 1
+                        prefix = " └── " if is_last else " ├── "
+                        console.print(f"{prefix}{dep}")
+
+                        # Print sub-dependencies
+                        if dep in tree:
+                            sub_prefix = "     " if is_last else " │   "
+                            for j, sub_dep in enumerate(tree[dep]):
+                                is_last_sub = j == len(tree[dep]) - 1
+                                sub_marker = "└── " if is_last_sub else "├── "
+                                console.print(
+                                    f"{sub_prefix}{sub_marker}{sub_dep}"
+                                )
+                else:
+                    console.print(" └── (no dependencies)")
+
+                console.print("")  # Add blank line between packages
+
+            except Exception as e:
+                console.warning(f"Failed to get dependencies for {name}")
+                console.print(f" └── {name} (error)")
+                console.print("")

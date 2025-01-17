@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple, Any
 from collections import defaultdict
 from importlib.metadata import distribution, distributions, PackageNotFoundError
+import importlib.metadata
 
 from .exceptions import DependencyError
 from .package import PackageManager
@@ -44,82 +45,107 @@ class DependencyNode:
 class DependencyAnalyzer:
     """Analyzes package dependencies and relationships."""
 
-    def __init__(self, venv_path: Optional[Path] = None):
-        """
-        Initialize dependency analyzer.
-
-        Args:
-            venv_path: Optional virtual environment path
-        """
-        self.venv_path = venv_path
-        self._pkg_manager = PackageManager(venv_path)
+    def __init__(self, pkg_manager):
+        self._pkg_manager = pkg_manager
+        self._processed_deps = set()  # Track processed dependencies
 
     def build_dependency_tree(
         self,
         package: str,
-        max_depth: Optional[int] = None,
-        include_versions: bool = True,
-    ) -> DependencyNode:
-        """
-        Build dependency tree for package.
+        level: int = 0,
+        processed_deps: Optional[Set[str]] = None,
+    ) -> Dict:
+        """Build dependency tree for a package.
 
         Args:
-            package: Package name
-            max_depth: Maximum depth to traverse
-            include_versions: Whether to include version constraints
+            package: Package name to analyze
+            level: Current depth level in tree
+            processed_deps: Set of already processed dependencies
 
         Returns:
-            Root node of dependency tree
-
-        Raises:
-            DependencyError: If building tree fails
+            Dictionary containing package info and dependencies
         """
+        if processed_deps is None:
+            processed_deps = set()
+
         try:
-            visited = set()
+            # Get installed packages
+            installed_packages = self._pkg_manager.list_installed(
+                top_level_only=False
+            )
 
-            def _build_tree(pkg: str, depth: int = 0) -> DependencyNode:
-                if pkg in visited:
-                    return DependencyNode(pkg, "...")
+            # Get package metadata
+            try:
+                dist = importlib.metadata.distribution(package)
+                package_name = dist.metadata["Name"]  # Get original name
+                installed_version = installed_packages.get(package_name)
+            except Exception:
+                package_name = package
+                installed_version = None
 
-                if max_depth is not None and depth >= max_depth:
-                    return DependencyNode(pkg, "...")
+            # Get normalized name for dependency tracking
+            normalized_name = normalize_package_name(package_name)
 
-                visited.add(pkg)
-                version = None
+            # Get package dependencies
+            dependencies = self._pkg_manager._get_package_dependencies(
+                normalized_name
+            )
 
-                try:
-                    info = self._pkg_manager.get_package_info(pkg)
-                    if include_versions:
-                        version = info.get("version")
+            # Create package info
+            package_info = {
+                "name": package_name,  # Use original name from metadata
+                "installed_version": installed_version,
+                "required_version": None,  # We'll add this later when comparing with requirements.txt
+                "level": level,
+                "dependencies": [],
+            }
 
-                    node = DependencyNode(pkg, version)
-                    requires = info.get("requires", "")
+            # Process dependencies if not already processed
+            if normalized_name not in processed_deps:
+                processed_deps.add(normalized_name)
 
-                    if requires:
-                        for dep in requires.split(","):
-                            dep = dep.split(";")[0].strip()  # Remove markers
-                            dep_name = dep.split()[0]
-                            dep_version = None
-                            if include_versions and " " in dep:
-                                dep_version = dep.split(" ", 1)[1]
+                for dep in dependencies:
+                    # Parse dependency name and version
+                    if "==" in dep:
+                        dep_name, dep_version = dep.split("==")
+                    else:
+                        dep_name = dep
+                        dep_version = None
 
-                            child = _build_tree(dep_name, depth + 1)
-                            if child:
-                                node.add_child(child)
+                    # Get normalized name for dependency
+                    dep_normalized = normalize_package_name(dep_name)
+                    # If dependency was already processed, mark it as repeated
+                    if dep_normalized in processed_deps:
+                        package_info["dependencies"].append(
+                            {
+                                "name": dep_name,
+                                "installed_version": dep_version,
+                                "required_version": None,
+                                "level": level + 1,
+                                "repeated": True,
+                            }
+                        )
+                    else:
+                        # Recursively build tree for new dependencies
+                        dep_info = self.build_dependency_tree(
+                            dep_name, level + 1, processed_deps
+                        )
+                        package_info["dependencies"].append(dep_info)
 
-                    return node
-
-                except Exception:
-                    console.warning(f"Failed to get dependencies for {pkg}")
-                    return DependencyNode(pkg, "error")
-
-            return _build_tree(package)
+            return package_info
 
         except Exception as e:
-            raise DependencyError(
-                f"Failed to build dependency tree for {package}",
-                details=str(e),
+            console.warning(
+                f"Failed to analyze dependencies for {package}: {str(e)}"
             )
+            return {
+                "name": package,
+                "installed_version": None,
+                "required_version": None,
+                "level": level,
+                "dependencies": [],
+                "error": str(e),
+            }
 
     def format_tree(
         self,
@@ -140,18 +166,22 @@ class DependencyAnalyzer:
         """
         # Choose the appropriate branch characters
         branch = "└── " if is_last else "├── "
+        indent = "    " if is_last else "│   "
 
         # Format current node
         version = f" ({node.version})" if node.version else ""
         result = [f"{prefix}{branch}{node.name}{version}"]
 
-        # Prepare prefix for children
-        child_prefix = prefix + ("    " if is_last else "│   ")
-
         # Format children
         for i, child in enumerate(node.children):
             is_last_child = i == len(node.children) - 1
-            result.append(self.format_tree(child, child_prefix, is_last_child))
+            result.append(
+                self.format_tree(
+                    child,
+                    prefix + indent,
+                    is_last_child,
+                )
+            )
 
         return "\n".join(result)
 
