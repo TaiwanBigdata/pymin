@@ -75,8 +75,10 @@ def create_package_table(
         required_version = package_data.get("required_version", "")
         if required_version:
             required_text = Text(required_version.lstrip("="), style="blue")
-        else:
+        elif not package_data.get("is_dependency"):
             required_text = Text("None", style="yellow")
+        else:
+            required_text = Text("")
         styled_row.append(required_text)
 
         # Handle installed version
@@ -93,7 +95,10 @@ def create_package_table(
         styled_row.append(status_text)
 
         # Add the row to the table
-        table.add_row(*styled_row)
+        if package_data.get("is_dependency"):
+            table.add_row(*styled_row, style="dim")
+        else:
+            table.add_row(*styled_row)
 
     return table
 

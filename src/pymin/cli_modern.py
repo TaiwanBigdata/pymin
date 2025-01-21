@@ -191,6 +191,8 @@ def list(show_all: bool, show_tree: bool):
             if show_all:
                 packages = pkg_analyzer.get_installed_packages()
                 title = "All Installed Packages"
+                # Get top level packages for dimming check
+                top_level_packages = pkg_analyzer.get_top_level_packages()
             else:
                 packages = pkg_analyzer.get_top_level_packages()
                 title = "Top Level Packages"
@@ -202,6 +204,7 @@ def list(show_all: bool, show_tree: bool):
             # Get all dependencies for redundancy check
             all_packages = pkg_analyzer.get_installed_packages()
             all_dependencies = set()
+            requirements = pkg_analyzer._parse_reqpmmuirements()
             for pkg_info in all_packages.values():
                 deps = pkg_info.get("dependencies", [])
                 all_dependencies.update(deps)
@@ -219,10 +222,14 @@ def list(show_all: bool, show_tree: bool):
                         "required_version": "",
                     }
 
-                # Check if package is redundant
-                if name in all_dependencies:
+                # Check if package is redundant (in requirements.txt and is a dependency)
+                if name in requirements and name in all_dependencies:
                     package_data["redundant"] = True
                     package_data["status"] = "redundant"
+
+                # Mark if package is not top-level (for dimming in display)
+                if show_all and name not in top_level_packages:
+                    package_data["is_dependency"] = True
 
                 rows.append([package_data])
 
