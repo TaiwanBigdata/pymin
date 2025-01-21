@@ -10,7 +10,7 @@ COLORS = {
     "warning": "yellow",
     "info": "blue",
     "highlight": "cyan",
-    "dim": "dim",
+    "dim": "bright_black",
 }
 
 # Style definitions
@@ -23,15 +23,22 @@ STYLES = {
     "error": Style(color="red", bold=True),
     "warning": Style(color="yellow"),
     "info": Style(color="blue"),
+    # Package status styles
+    "normal": Style(color="green"),
+    "redundant": Style(color="yellow"),
+    "not_installed": Style(color="red"),
+    "not_in_requirements": Style(color="blue"),
+    "version_mismatch": Style(color="red"),
     # Package related styles
     "package_name": Style(color="cyan"),
-    "package_version": Style(color="white"),
-    "package_status": Style(color="green"),
+    "package_version": Style(color="bright_black"),
     "package_dependency": Style(dim=True),
     # Environment related styles
     "venv_active": Style(color="green", bold=True),
     "venv_inactive": Style(color="yellow"),
     "venv_path": Style(color="blue"),
+    "env_name": Style(color="green"),
+    "env_path": Style(color="bright_black"),
     # Other styles
     "highlight": Style(color="cyan"),
     "dim": Style(dim=True),
@@ -44,6 +51,12 @@ SYMBOLS = {
     "error": "✗",
     "warning": "⚠",
     "info": "ℹ",
+    # Package status symbols
+    "normal": "✓",
+    "redundant": "⚠",
+    "not_installed": "✗",
+    "not_in_requirements": "△",
+    "version_mismatch": "≠",
     "arrow": "→",
     "bullet": "•",
     "tree_branch": "├──",
@@ -66,7 +79,7 @@ THEME = Theme(
 
 def get_status_symbol(status: str) -> str:
     """Get status symbol for given status"""
-    return SYMBOLS.get(status, "")
+    return SYMBOLS.get(status, "•")
 
 
 def get_style(style_name: str) -> Style:

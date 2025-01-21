@@ -74,7 +74,6 @@ def create_dependency_tree(packages: Dict[str, Dict]) -> Table:
         header_style="bold magenta",
         title_justify="left",
         expand=False,
-        border_style="bright_blue",
     )
 
     # Add columns with specific styles and alignment
@@ -99,28 +98,51 @@ def create_dependency_tree(packages: Dict[str, Dict]) -> Table:
             prefix = ""
         else:
             prefix = ""
-            # Add prefix for each level based on parent status
             for i in range(level - 1):
-                # Check parent's status at current level
                 is_parent_last_at_level = (
                     i < len(parent_is_last) and parent_is_last[i]
                 )
-                # If parent was last at this level, add spaces, otherwise add vertical line
                 prefix += "    " if is_parent_last_at_level else "│   "
-
-            # Add the final connector
             prefix += "└── " if is_last else "├── "
 
         # Get package information
-        installed_version = data.get("version", "")
-        required_version = data.get("required_version", "None")
-        status = "△" if level == 0 else ""
+        installed_version = data.get("installed_version", "")
+        required_version = data.get("required_version", "")
+        display_name = data.get("name", name)  # Use name from data if available
+
+        # Format version displays for top-level packages
+        if level == 0:
+            required_version = (
+                required_version.lstrip("=")
+                if required_version
+                else "[yellow]None[/yellow]"
+            )
+            installed_version = (
+                installed_version
+                if installed_version
+                else "[yellow]None[/yellow]"
+            )
+
+        # Get status and format package name
+        status = data.get("status", "")
+        status_style = get_style(status)
+        status_symbol = Text(get_status_symbol(status), style=status_style)
+
+        # Create display name with styled redundant suffix
+        if level == 0 and status == "redundant":
+            display_text = Text()
+            display_text.append(display_name)
+            display_text.append(" ", style="yellow")
+            display_text.append("(redundant)", style="yellow")
+            display_name = Text.assemble(prefix, display_text)
+        else:
+            display_name = f"{prefix}{display_name}"
 
         return [
-            f"{prefix}{name}",
+            display_name,
             required_version if level == 0 else "",
             installed_version,
-            status,
+            status_symbol,
         ]
 
     def add_package_to_table(
@@ -139,6 +161,7 @@ def create_dependency_tree(packages: Dict[str, Dict]) -> Table:
         if level > 0:
             table.add_row(*row, style="dim")
         else:
+            # Top level packages don't need a row style
             table.add_row(*row)
 
         # Add dependencies
@@ -146,10 +169,8 @@ def create_dependency_tree(packages: Dict[str, Dict]) -> Table:
             deps = list(data["dependencies"].items())
             for i, (dep_name, dep_data) in enumerate(deps):
                 is_last_dep = i == len(deps) - 1
-                # For nested dependencies, we need to track the parent's status
                 current_parent_is_last = parent_is_last.copy()
                 if level > 0:
-                    # Only add current level's status for nested dependencies
                     current_parent_is_last.append(is_last)
 
                 add_package_to_table(
