@@ -4,7 +4,6 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
-from rich.tree import Tree
 from rich.box import DOUBLE
 from typing import Dict, List, Optional, Union
 from ..ui.style import STYLES, SYMBOLS, get_status_symbol, get_style
@@ -85,36 +84,58 @@ def create_dependency_tree(packages: Dict[str, Dict]) -> Table:
     table.add_column("Status", justify="center")
 
     def format_tree_line(
-        name: str, data: Dict, level: int = 0, is_last: bool = False
+        name: str,
+        data: Dict,
+        level: int = 0,
+        is_last: bool = False,
+        parent_is_last: List[bool] = None,
     ) -> List[str]:
         """Format a single line of the dependency tree"""
-        prefix = "    " * level
-        if level > 0:
-            prefix = prefix[:-4] + ("└── " if is_last else "├── ")
+        if parent_is_last is None:
+            parent_is_last = []
+
+        # Build the prefix based on level and parent status
+        if level == 0:
+            prefix = ""
+        else:
+            prefix = ""
+            # Add prefix for each level based on parent status
+            for i in range(level - 1):
+                # Check parent's status at current level
+                is_parent_last_at_level = (
+                    i < len(parent_is_last) and parent_is_last[i]
+                )
+                # If parent was last at this level, add spaces, otherwise add vertical line
+                prefix += "    " if is_parent_last_at_level else "│   "
+
+            # Add the final connector
+            prefix += "└── " if is_last else "├── "
 
         # Get package information
         installed_version = data.get("version", "")
         required_version = data.get("required_version", "None")
-        status = (
-            "△" if level == 0 else ""
-        )  # Only show status for top-level packages
+        status = "△" if level == 0 else ""
 
-        # Create row with proper styling
-        row = [
+        return [
             f"{prefix}{name}",
             required_version if level == 0 else "",
             installed_version,
             status,
         ]
 
-        return row
-
     def add_package_to_table(
-        name: str, data: Dict, level: int = 0, is_last: bool = False
+        name: str,
+        data: Dict,
+        level: int = 0,
+        is_last: bool = False,
+        parent_is_last: List[bool] = None,
     ):
         """Recursively add package and its dependencies to the table"""
+        if parent_is_last is None:
+            parent_is_last = []
+
         # Add current package
-        row = format_tree_line(name, data, level, is_last)
+        row = format_tree_line(name, data, level, is_last, parent_is_last)
         if level > 0:
             table.add_row(*row, style="dim")
         else:
@@ -125,7 +146,19 @@ def create_dependency_tree(packages: Dict[str, Dict]) -> Table:
             deps = list(data["dependencies"].items())
             for i, (dep_name, dep_data) in enumerate(deps):
                 is_last_dep = i == len(deps) - 1
-                add_package_to_table(dep_name, dep_data, level + 1, is_last_dep)
+                # For nested dependencies, we need to track the parent's status
+                current_parent_is_last = parent_is_last.copy()
+                if level > 0:
+                    # Only add current level's status for nested dependencies
+                    current_parent_is_last.append(is_last)
+
+                add_package_to_table(
+                    dep_name,
+                    dep_data,
+                    level + 1,
+                    is_last_dep,
+                    current_parent_is_last,
+                )
 
         # Add empty line between top-level packages
         if level == 0 and not is_last:

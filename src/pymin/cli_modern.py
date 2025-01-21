@@ -14,8 +14,11 @@ from .modern.core.package_analyzer import PackageAnalyzer
 from .modern.ui.console import (
     create_package_table,
     create_dependency_tree,
+    create_status_panel,
     print_error,
     print_warning,
+    print_success,
+    print_info,
 )
 
 console = Console(force_terminal=True, color_system="auto")
@@ -140,51 +143,55 @@ cli.format_commands = format_help_message
 
 
 @cli.command()
-@click.option("-a", "--all", is_flag=True, help="Show all installed packages")
-@click.option("-t", "--tree", is_flag=True, help="Show dependency tree")
-def list(all: bool, tree: bool):
-    """List installed packages and their dependencies"""
-    if not Path(os.environ.get("VIRTUAL_ENV", "")).exists():
-        print_error("No active virtual environment found")
-        return
-
+@click.option(
+    "-a", "--all", "show_all", is_flag=True, help="Show all installed packages"
+)
+@click.option(
+    "-t", "--tree", "show_tree", is_flag=True, help="Show dependency tree"
+)
+def list(show_all: bool, show_tree: bool):
+    """List installed packages"""
     try:
-        if tree:
-            # Show dependency tree
+        if show_tree:
+            # Get dependency tree
             packages = pkg_analyzer.get_dependency_tree()
             if not packages:
                 print_warning("No installed packages found")
                 return
 
             # Create and display dependency tree
-            tree_view = create_dependency_tree(packages)
-            console.print("\n")
-            console.print(tree_view)
-            console.print("\n")
+            tree_table = create_dependency_tree(packages)
+            console.print(tree_table)
 
-            # Calculate statistics
+            # Display summary
             total_packages = len(packages)
-            direct_deps = sum(
-                1 for pkg in packages.values() if "dependencies" in pkg
-            )
             total_deps = sum(
                 len(pkg.get("dependencies", {})) for pkg in packages.values()
             )
-
-            # Show summary
-            console.print("Summary:")
-            console.print(f"  • Total Packages: {total_packages}")
-            console.print(f"  • Not in requirements.txt (△): {total_packages}")
-            console.print(
-                f"  • Total Dependencies: {total_deps} (Direct: {direct_deps})"
+            direct_deps = sum(
+                1 for pkg in packages.values() if pkg.get("dependencies")
             )
+
             console.print("\n")
-            console.print("Tip: Run pm fix to resolve package inconsistencies")
+            summary = Panel.fit(
+                "\n".join(
+                    [
+                        f"  • Total Packages: {total_packages}",
+                        f"  • Not in requirements.txt (△): {total_packages}",
+                        f"  • Total Dependencies: {total_deps} (Direct: {direct_deps})",
+                    ]
+                ),
+                title="Summary",
+                border_style="bright_blue",
+                padding=(1, 2),
+            )
+            console.print(summary)
             console.print("\n")
+            print_info("Run pm fix to resolve package inconsistencies")
 
         else:
             # Get package data
-            if all:
+            if show_all:
                 packages = pkg_analyzer.get_installed_packages()
                 title = "All Installed Packages"
             else:
