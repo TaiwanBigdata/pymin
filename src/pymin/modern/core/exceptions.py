@@ -1,48 +1,55 @@
-# Custom exceptions for package management
-from typing import Optional
+"""Custom exceptions for the modern package management system"""
 
 
-class PackageError(Exception):
-    """Base exception for all package-related errors."""
+class PyMinModernError(Exception):
+    """Base exception for PyMin Modern"""
 
-    def __init__(self, message: str, details: Optional[str] = None):
-        self.message = message
-        self.details = details
-        super().__init__(message)
+    pass
 
 
-class VersionError(PackageError):
-    """Exception raised for version-related errors."""
+class VirtualEnvError(PyMinModernError):
+    """Virtual environment related errors"""
+
+    pass
+
+
+class PackageError(PyMinModernError):
+    """Package management related errors"""
 
     pass
 
 
 class DependencyError(PackageError):
-    """Exception raised for dependency-related errors."""
+    """Dependency resolution errors"""
+
+    pass
+
+
+class VersionError(PackageError):
+    """Version related errors"""
+
+    pass
+
+
+class InstallationError(PackageError):
+    """Package installation errors"""
+
+    pass
+
+
+class UninstallationError(PackageError):
+    """Package uninstallation errors"""
 
     pass
 
 
 class RequirementsError(PackageError):
-    """Exception raised for requirements.txt related errors."""
+    """Requirements.txt related errors"""
 
     pass
 
 
-class PipError(PackageError):
-    """Exception raised for pip command related errors."""
-
-    def __init__(
-        self,
-        message: str,
-        pip_output: Optional[str] = None,
-        details: Optional[str] = None,
-    ):
-        self.pip_output = pip_output
-        super().__init__(message, details)
-
-
-class EnvironmentError(PackageError):
-    """Exception raised for virtual environment related errors."""
+class PyPIError(PyMinModernError):
+    """PyPI interaction errors"""
 
     pass

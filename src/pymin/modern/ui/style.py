@@ -1,55 +1,74 @@
-# Console styling definitions
-from enum import Enum
+"""Style definitions for consistent UI appearance"""
 
+from rich.style import Style
+from rich.theme import Theme
 
-class Colors:
-    """Color definitions for console output."""
+# Color constants
+COLORS = {
+    "success": "green",
+    "error": "red",
+    "warning": "yellow",
+    "info": "blue",
+    "highlight": "cyan",
+    "dim": "dim",
+}
 
-    # Primary colors
-    CYAN = "cyan"
-    BLUE = "blue"
-    GREEN = "green"
-    RED = "red"
-    YELLOW = "yellow"
-
-    # Variants
-    BRIGHT_BLUE = "bright_blue"
-    BRIGHT_GREEN = "bright_green"
-    BRIGHT_RED = "bright_red"
-    BRIGHT_YELLOW = "bright_yellow"
-
-    # Special
-    DIM = "dim"
-    BOLD = "bold"
-
-
-class Styles:
-    """Style definitions combining colors and attributes."""
-
+# Style definitions
+STYLES = {
+    # Title styles
+    "title": Style(color="cyan", bold=True),
+    "subtitle": Style(color="blue", bold=True),
     # Status styles
-    SUCCESS = f"{Colors.BRIGHT_GREEN} bold"
-    ERROR = f"{Colors.BRIGHT_RED} bold"
-    WARNING = Colors.YELLOW
-    INFO = Colors.BLUE
+    "success": Style(color="green", bold=True),
+    "error": Style(color="red", bold=True),
+    "warning": Style(color="yellow"),
+    "info": Style(color="blue"),
+    # Package related styles
+    "package_name": Style(color="cyan"),
+    "package_version": Style(color="white"),
+    "package_status": Style(color="green"),
+    "package_dependency": Style(dim=True),
+    # Environment related styles
+    "venv_active": Style(color="green", bold=True),
+    "venv_inactive": Style(color="yellow"),
+    "venv_path": Style(color="blue"),
+    # Other styles
+    "highlight": Style(color="cyan"),
+    "dim": Style(dim=True),
+    "url": Style(color="blue", underline=True),
+}
 
-    # Text styles
-    BOLD = Colors.BOLD
-    DIM = Colors.DIM
+# Status symbols
+SYMBOLS = {
+    "success": "✓",
+    "error": "✗",
+    "warning": "⚠",
+    "info": "ℹ",
+    "arrow": "→",
+    "bullet": "•",
+    "tree_branch": "├──",
+    "tree_last": "└──",
+    "tree_vertical": "│",
+}
 
-    # Element styles
-    HEADER = f"{Colors.BRIGHT_BLUE} bold"
-    LINK = Colors.BLUE
-    PATH = Colors.CYAN
-    VERSION = Colors.CYAN
+# Theme definition
+THEME = Theme(
+    {
+        "success": f"bold {COLORS['success']}",
+        "error": f"bold {COLORS['error']}",
+        "warning": COLORS["warning"],
+        "info": COLORS["info"],
+        "highlight": COLORS["highlight"],
+        "dim": COLORS["dim"],
+    }
+)
 
 
-class Symbols:
-    """Unicode symbols for status indicators."""
+def get_status_symbol(status: str) -> str:
+    """Get status symbol for given status"""
+    return SYMBOLS.get(status, "")
 
-    SUCCESS = "✓"  # Check mark
-    ERROR = "✗"  # Cross mark
-    WARNING = "⚠"  # Warning sign
-    INFO = "ℹ"  # Info sign
-    BULLET = "•"  # List bullet
-    ARROW = "→"  # Arrow
-    DOTS = "…"  # Ellipsis
+
+def get_style(style_name: str) -> Style:
+    """Get style for given style name"""
+    return STYLES.get(style_name, Style())

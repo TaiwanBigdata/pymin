@@ -1,180 +1,152 @@
-# Console display functionality
-from typing import Optional, Any, List
-from rich.console import Console as RichConsole
-from rich.prompt import Confirm
-from rich.panel import Panel
+"""Console output handling with consistent styling"""
+
+from rich.console import Console
 from rich.table import Table
+from rich.panel import Panel
 from rich.text import Text
-from rich.status import Status
+from rich.tree import Tree
+from rich.box import DOUBLE
+from typing import Dict, List, Optional, Union
+from ..ui.style import STYLES, SYMBOLS, get_status_symbol, get_style
 
-from .style import Colors, Styles, Symbols
-
-
-class Console:
-    """Wrapper for rich.console.Console with additional functionality."""
-
-    def __init__(self):
-        """Initialize console with default settings."""
-        self._console = RichConsole()
-        self._status: Optional[Status] = None
-
-    def print(self, *args, **kwargs):
-        """Print to console using rich formatting."""
-        self._console.print(*args, **kwargs)
-
-    def success(self, message: str, details: Optional[str] = None):
-        """
-        Print success message.
-
-        Args:
-            message: Main success message
-            details: Optional details
-        """
-        text = Text()
-        text.append(f"{Symbols.SUCCESS} ", style=Styles.SUCCESS)
-        text.append(message)
-        self.print(text)
-        if details:
-            self.print(Text(details, style=Styles.DIM))
-
-    def error(self, message: str, details: Optional[str] = None):
-        """
-        Print error message.
-
-        Args:
-            message: Main error message
-            details: Optional error details
-        """
-        text = Text()
-        text.append(f"{Symbols.ERROR} ", style=Styles.ERROR)
-        text.append(message)
-        self.print(text)
-        if details:
-            self.print(Text(details, style=Styles.DIM))
-
-    def warning(self, message: str, details: Optional[str] = None):
-        """
-        Print warning message.
-
-        Args:
-            message: Main warning message
-            details: Optional warning details
-        """
-        text = Text()
-        text.append(f"{Symbols.WARNING} ", style=Styles.WARNING)
-        text.append(message)
-        self.print(text)
-        if details:
-            self.print(Text(details, style=Styles.DIM))
-
-    def info(self, message: str, details: Optional[str] = None):
-        """
-        Print info message.
-
-        Args:
-            message: Main info message
-            details: Optional info details
-        """
-        text = Text()
-        text.append(f"{Symbols.INFO} ", style=Styles.INFO)
-        text.append(message)
-        self.print(text)
-        if details:
-            self.print(Text(details, style=Styles.DIM))
-
-    def confirm(self, message: str, default: bool = False) -> bool:
-        """
-        Ask for user confirmation.
-
-        Args:
-            message: Confirmation message
-            default: Default response if user just presses Enter
-
-        Returns:
-            True if user confirmed, False otherwise
-        """
-        return Confirm.ask(message, default=default)
-
-    def create_table(
-        self, title: Optional[str] = None, show_header: bool = True, **kwargs
-    ) -> Table:
-        """
-        Create a new table with consistent styling.
-
-        Args:
-            title: Optional table title
-            show_header: Whether to show table header
-            **kwargs: Additional arguments passed to Table
-
-        Returns:
-            Styled table instance
-        """
-        return Table(
-            title=title,
-            show_header=show_header,
-            header_style=Styles.BOLD,
-            title_style=Styles.BOLD,
-            **kwargs,
-        )
-
-    def create_panel(
-        self, content: Any, title: Optional[str] = None, **kwargs
-    ) -> Panel:
-        """
-        Create a new panel with consistent styling.
-
-        Args:
-            content: Panel content
-            title: Optional panel title
-            **kwargs: Additional arguments passed to Panel
-
-        Returns:
-            Styled panel instance
-        """
-        return Panel(
-            content,
-            title=title,
-            title_align="left",
-            border_style="bright_blue",
-            **kwargs,
-        )
-
-    def start_status(self, message: str) -> None:
-        """
-        Start a status spinner with message.
-
-        Args:
-            message: Status message to display
-        """
-        if self._status:
-            self._status.stop()
-        self._status = self._console.status(message, spinner="dots")
-        self._status.start()
-
-    def update_status(self, message: str) -> None:
-        """
-        Update current status message.
-
-        Args:
-            message: New status message
-        """
-        if self._status:
-            self._status.update(message)
-
-    def stop_status(self) -> None:
-        """Stop current status spinner."""
-        if self._status:
-            self._status.stop()
-            self._status = None
-
-    def __enter__(self):
-        """Context manager entry."""
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit."""
-        self.stop_status()
+console = Console(force_terminal=True, color_system="auto")
 
 
-# Global console instance
-console = Console()
+def print_error(message: str):
+    """Display error message"""
+    console.print(f"{SYMBOLS['error']} {message}", style=STYLES["error"])
+
+
+def print_warning(message: str):
+    """Display warning message"""
+    console.print(f"{SYMBOLS['warning']} {message}", style=STYLES["warning"])
+
+
+def print_success(message: str):
+    """Display success message"""
+    console.print(f"{SYMBOLS['success']} {message}", style=STYLES["success"])
+
+
+def print_info(message: str):
+    """Display info message"""
+    console.print(f"{SYMBOLS['info']} {message}", style=STYLES["info"])
+
+
+def create_package_table(
+    title: str,
+    headers: List[str],
+    rows: List[List[str]],
+    styles: Optional[List[str]] = None,
+) -> Table:
+    """Create package table with consistent styling"""
+    table = Table(
+        title=title,
+        show_header=True,
+        header_style="bold magenta",
+        title_justify="left",
+        expand=True,
+        border_style="bright_blue",
+        box=None,
+    )
+
+    # Add columns
+    for header in headers:
+        table.add_column(header)
+
+    # Add rows
+    for row in rows:
+        if styles:
+            styled_row = [
+                Text(cell, style=get_style(style))
+                for cell, style in zip(row, styles)
+            ]
+            table.add_row(*styled_row)
+        else:
+            table.add_row(*row)
+
+    return table
+
+
+def create_dependency_tree(packages: Dict[str, Dict]) -> Table:
+    """Create dependency tree table with consistent styling"""
+    table = Table(
+        title="Package Dependencies",
+        show_header=True,
+        header_style="bold magenta",
+        title_justify="left",
+        expand=False,
+        border_style="bright_blue",
+    )
+
+    # Add columns with specific styles and alignment
+    table.add_column("Package Tree", style="cyan", no_wrap=True)
+    table.add_column("Required", style="blue")
+    table.add_column("Installed", style="cyan")
+    table.add_column("Status", justify="center")
+
+    def format_tree_line(
+        name: str, data: Dict, level: int = 0, is_last: bool = False
+    ) -> List[str]:
+        """Format a single line of the dependency tree"""
+        prefix = "    " * level
+        if level > 0:
+            prefix = prefix[:-4] + ("└── " if is_last else "├── ")
+
+        # Get package information
+        installed_version = data.get("version", "")
+        required_version = data.get("required_version", "None")
+        status = (
+            "△" if level == 0 else ""
+        )  # Only show status for top-level packages
+
+        # Create row with proper styling
+        row = [
+            f"{prefix}{name}",
+            required_version if level == 0 else "",
+            installed_version,
+            status,
+        ]
+
+        return row
+
+    def add_package_to_table(
+        name: str, data: Dict, level: int = 0, is_last: bool = False
+    ):
+        """Recursively add package and its dependencies to the table"""
+        # Add current package
+        row = format_tree_line(name, data, level, is_last)
+        if level > 0:
+            table.add_row(*row, style="dim")
+        else:
+            table.add_row(*row)
+
+        # Add dependencies
+        if "dependencies" in data:
+            deps = list(data["dependencies"].items())
+            for i, (dep_name, dep_data) in enumerate(deps):
+                is_last_dep = i == len(deps) - 1
+                add_package_to_table(dep_name, dep_data, level + 1, is_last_dep)
+
+        # Add empty line between top-level packages
+        if level == 0 and not is_last:
+            table.add_row("", "", "", "")
+
+    # Add all packages to table
+    packages_list = list(packages.items())
+    for i, (name, data) in enumerate(packages_list):
+        add_package_to_table(name, data, is_last=(i == len(packages_list) - 1))
+
+    return table
+
+
+def create_status_panel(
+    title: str, content: Union[str, Text], style: str = "info"
+) -> Panel:
+    """Create status panel with consistent styling"""
+    return Panel.fit(
+        content,
+        title=title,
+        title_align="left",
+        border_style=STYLES[style].color,
+        padding=(1, 2),
+    )
