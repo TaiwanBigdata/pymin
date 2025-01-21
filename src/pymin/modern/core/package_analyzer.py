@@ -4,8 +4,6 @@ from packaging.requirements import Requirement
 from packaging.version import Version, parse as parse_version
 import importlib.metadata
 from enum import Enum
-from pathlib import Path
-from ..core.exceptions import PackageError, DependencyError
 
 from pymin.modern.core.venv_analyzer import VenvAnalyzer
 
@@ -148,6 +146,10 @@ class PackageAnalyzer:
             "pip",
             "setuptools",
             "wheel",
+            "pkg_resources",  # Part of setuptools
+            "pkg-resources",  # Debian/Ubuntu specific
+            "distribute",  # Old version of setuptools
+            "easy_install",  # Part of setuptools
         }
 
     def _should_exclude_dependency(self, requirement: str) -> bool:
@@ -435,140 +437,3 @@ class PackageAnalyzer:
                 result[pkg_name] = dep_info
 
         return dict(sorted(result.items()))
-
-    def get_package_dependencies(self, package_name: str) -> Set[str]:
-        """Get direct dependencies for a package"""
-        try:
-            dist = importlib.metadata.distribution(package_name)
-            direct_deps = set()
-
-            if dist.requires:
-                for req in dist.requires:
-                    try:
-                        req_obj = Requirement(req)
-                        dep_name = self._normalize_package_name(req_obj.name)
-                        # Only add dependency if it's installed
-                        try:
-                            importlib.metadata.distribution(dep_name)
-                            direct_deps.add(dep_name)
-                        except importlib.metadata.PackageNotFoundError:
-                            continue
-                    except:
-                        continue
-
-            return direct_deps
-        except importlib.metadata.PackageNotFoundError:
-            return set()
-
-    def get_installed_packages(self) -> Dict[str, str]:
-        """Get all installed packages and their versions"""
-        packages = {}
-        try:
-            # Get system packages to exclude
-            system_pkgs = self._get_system_packages()
-
-            # Get all installed packages
-            for dist in importlib.metadata.distributions():
-                name = dist.metadata["Name"]
-                normalized_name = self._normalize_package_name(name)
-                # Skip system packages and development package
-                if (
-                    normalized_name not in system_pkgs
-                    and not normalized_name.startswith(
-                        ("pip-", "setuptools-", "wheel-")
-                    )
-                    and normalized_name != "pymin"
-                ):
-                    packages[name] = dist.version
-
-        except Exception as e:
-            raise PackageError(f"Error getting installed packages: {str(e)}")
-
-        return packages
-
-    def get_top_level_packages(self) -> Dict[str, str]:
-        """Get packages that were explicitly installed (not dependencies)"""
-        # Get system packages to exclude
-        system_pkgs = self._get_system_packages()
-
-        # Get all installed packages except system packages
-        all_packages = {
-            self._normalize_package_name(dist.metadata["Name"]): dist.version
-            for dist in importlib.metadata.distributions()
-            if self._normalize_package_name(dist.metadata["Name"])
-            not in system_pkgs
-            and self._normalize_package_name(dist.metadata["Name"]) != "pymin"
-        }
-
-        # Get all dependencies
-        all_dependencies = set()
-        for pkg in all_packages:
-            all_dependencies.update(self.get_package_dependencies(pkg))
-
-        # Get top level packages (those that are not dependencies)
-        top_level = {}
-        for name, version in all_packages.items():
-            if name not in all_dependencies:
-                # Find original package name with correct case
-                for dist in importlib.metadata.distributions():
-                    if (
-                        self._normalize_package_name(dist.metadata["Name"])
-                        == name
-                    ):
-                        top_level[dist.metadata["Name"]] = version
-                        break
-
-        return top_level
-
-    def get_dependency_tree(self) -> Dict[str, Dict]:
-        """Get dependency tree for all top-level packages"""
-
-        def build_tree(package: str, seen: Optional[Set[str]] = None) -> Dict:
-            if seen is None:
-                seen = set()
-
-            normalized_name = self._normalize_package_name(package)
-            if normalized_name in seen:
-                return {"circular": True}
-
-            seen.add(normalized_name)
-            tree = {}
-
-            try:
-                # Get package version
-                dist = importlib.metadata.distribution(package)
-                tree["version"] = dist.version
-
-                # Get dependencies
-                deps = self.get_package_dependencies(package)
-                if deps:
-                    tree["dependencies"] = {}
-                    for dep in sorted(deps):
-                        # Find original package name
-                        original_name = None
-                        for dist in importlib.metadata.distributions():
-                            if self._normalize_package_name(
-                                dist.metadata["Name"]
-                            ) == self._normalize_package_name(dep):
-                                original_name = dist.metadata["Name"]
-                                break
-
-                        if original_name:
-                            tree["dependencies"][original_name] = build_tree(
-                                original_name, seen.copy()
-                            )
-
-            except importlib.metadata.PackageNotFoundError:
-                return {}
-
-            return tree
-
-        # Get top level packages
-        top_level = self.get_top_level_packages()
-
-        # Build tree for each top level package
-        tree = {}
-        for name in sorted(top_level.keys()):
-            tree[name] = build_tree(name)
-
-        return tree
