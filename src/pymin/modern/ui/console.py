@@ -34,7 +34,7 @@ def print_info(message: str):
 def create_package_table(
     title: str,
     headers: List[str],
-    rows: List[List[str]],
+    rows: List[List[Dict]],
     styles: Optional[List[str]] = None,
 ) -> Table:
     """Create package table with consistent styling"""
@@ -43,25 +43,57 @@ def create_package_table(
         show_header=True,
         header_style="bold magenta",
         title_justify="left",
-        expand=True,
-        border_style="bright_blue",
-        box=None,
+        expand=False,
     )
 
-    # Add columns
-    for header in headers:
-        table.add_column(header)
+    # Add columns with specific styles and alignment
+    table.add_column("Package Name", style="cyan", no_wrap=True)
+    table.add_column("Required", style="blue")
+    table.add_column("Installed", style="cyan")
+    table.add_column("Status", justify="center")
 
     # Add rows
     for row in rows:
-        if styles:
-            styled_row = [
-                Text(cell, style=get_style(style))
-                for cell, style in zip(row, styles)
-            ]
-            table.add_row(*styled_row)
+        if not row:  # Skip empty rows
+            continue
+
+        package_data = row[0]  # Get the package data from the row
+        styled_row = []
+
+        # Handle package name
+        name = package_data.get("name", "")
+        if package_data.get("redundant"):
+            name_text = Text()
+            name_text.append(name)
+            name_text.append(" ", style="yellow")
+            name_text.append("(redundant)", style="yellow")
         else:
-            table.add_row(*row)
+            name_text = Text(name, style="cyan")
+        styled_row.append(name_text)
+
+        # Handle required version
+        required_version = package_data.get("required_version", "")
+        if required_version:
+            required_text = Text(required_version.lstrip("="), style="blue")
+        else:
+            required_text = Text("None", style="yellow")
+        styled_row.append(required_text)
+
+        # Handle installed version
+        installed_version = package_data.get("installed_version", "")
+        if installed_version:
+            installed_text = Text(installed_version, style="cyan")
+        else:
+            installed_text = Text("None", style="yellow")
+        styled_row.append(installed_text)
+
+        # Handle status
+        status = package_data.get("status", "")
+        status_text = Text(get_status_symbol(status), style=get_style(status))
+        styled_row.append(status_text)
+
+        # Add the row to the table
+        table.add_row(*styled_row)
 
     return table
 

@@ -5,11 +5,9 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
-from rich.style import Style
 from pathlib import Path
 import os
 import sys
-from typing import Optional
 from .modern.core.package_analyzer import PackageAnalyzer
 from .modern.ui.console import (
     create_package_table,
@@ -177,7 +175,6 @@ def list(show_all: bool, show_tree: bool):
                 "\n".join(
                     [
                         f"  • Total Packages: {total_packages}",
-                        f"  • Not in requirements.txt (△): {total_packages}",
                         f"  • Total Dependencies: {total_deps} (Direct: {direct_deps})",
                     ]
                 ),
@@ -202,15 +199,39 @@ def list(show_all: bool, show_tree: bool):
                 print_warning("No installed packages found")
                 return
 
-            # Prepare table data
-            headers = ["Package Name", "Version"]
-            rows = [
-                [name, version] for name, version in sorted(packages.items())
-            ]
-            styles = ["package_name", "package_version"] * len(rows)
+            # Get all dependencies for redundancy check
+            all_packages = pkg_analyzer.get_installed_packages()
+            all_dependencies = set()
+            for pkg_info in all_packages.values():
+                deps = pkg_info.get("dependencies", [])
+                all_dependencies.update(deps)
+
+            # Convert package data to table rows
+            rows = []
+            for name, data in sorted(packages.items()):
+                # Handle both dictionary and string (version) formats
+                if isinstance(data, dict):
+                    package_data = data
+                else:
+                    package_data = {
+                        "name": name,
+                        "installed_version": data,
+                        "required_version": "",
+                    }
+
+                # Check if package is redundant
+                if name in all_dependencies:
+                    package_data["redundant"] = True
+                    package_data["status"] = "redundant"
+
+                rows.append([package_data])
 
             # Create and display table
-            table = create_package_table(title, headers, rows, styles)
+            table = create_package_table(
+                title,
+                ["Package Name", "Required", "Installed", "Status"],
+                rows,
+            )
             console.print("\n")
             console.print(table)
             console.print("\n")
