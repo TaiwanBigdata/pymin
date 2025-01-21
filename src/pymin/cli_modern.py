@@ -17,6 +17,7 @@ from .modern.ui.console import (
     print_warning,
     print_success,
     print_info,
+    print_table,
 )
 
 console = Console(force_terminal=True, color_system="auto")
@@ -159,7 +160,7 @@ def list(show_all: bool, show_tree: bool):
 
             # Create and display dependency tree
             tree_table = create_dependency_tree(packages)
-            console.print(tree_table)
+            print_table(tree_table)
 
             # Display summary
             total_packages = len(packages)
@@ -170,7 +171,6 @@ def list(show_all: bool, show_tree: bool):
                 1 for pkg in packages.values() if pkg.get("dependencies")
             )
 
-            console.print("\n")
             summary = Panel.fit(
                 "\n".join(
                     [
@@ -232,9 +232,7 @@ def list(show_all: bool, show_tree: bool):
                 ["Package Name", "Required", "Installed", "Status"],
                 rows,
             )
-            console.print("\n")
-            console.print(table)
-            console.print("\n")
+            print_table(table)
 
             # Show statistics
             console.print(f"Total: [cyan]{len(packages)}[/cyan] packages")

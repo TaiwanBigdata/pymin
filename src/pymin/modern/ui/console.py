@@ -236,3 +236,10 @@ def create_status_panel(
         border_style=STYLES[style].color,
         padding=(1, 2),
     )
+
+
+def print_table(table: Table) -> None:
+    """Print table with consistent padding"""
+    console.print("\n")
+    console.print(table)
+    console.print("\n")
