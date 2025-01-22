@@ -212,6 +212,11 @@ def list(show_all: bool, show_tree: bool):
                 if name in requirements and name in all_dependencies:
                     package_data["redundant"] = True
                     package_data["status"] = "redundant"
+                # Check if package is missing (in requirements.txt but not installed)
+                elif name in requirements and not package_data.get(
+                    "installed_version"
+                ):
+                    package_data["status"] = "missing"
 
                 # Mark if package is not top-level (for dimming in display)
                 if show_all and name not in top_level_packages:
@@ -228,7 +233,9 @@ def list(show_all: bool, show_tree: bool):
             print_table(table)
 
             # Display summary
-            summary_content = create_package_summary(packages)
+            summary_content = create_package_summary(
+                packages, show_all=show_all
+            )
             console.print(
                 create_summary_panel("Package Summary", summary_content)
             )

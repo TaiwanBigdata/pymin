@@ -242,43 +242,111 @@ def create_summary_panel(title: str, content: Union[str, Text]) -> Panel:
 
 
 def create_package_summary(
-    packages: Dict[str, Dict], show_tree: bool = False
+    packages: Dict[str, Dict], show_tree: bool = False, show_all: bool = False
 ) -> Text:
     """Create package summary with consistent styling"""
+    # Define status display names and styles
+    status_names = {
+        "normal": "Normal",
+        "outdated": "Outdated",
+        "missing": "Missing",
+        "redundant": "Redundant",
+        "version_mismatch": "Version Mismatch",
+        "not_in_requirements": "Not in Requirements",
+    }
+
+    status_styles = {
+        "normal": "green",
+        "outdated": "red",
+        "missing": "red",
+        "redundant": "yellow",
+        "version_mismatch": "red",
+        "not_in_requirements": "yellow",
+    }
+
     content = Text()
 
-    # Basic package count
-    total_packages = len(packages)
-    content.append("  • Total Packages: ")
-    content.append(str(total_packages), style="cyan")
+    # Count all possible package statuses
+    status_counts = {
+        "normal": 0,  # ✓ 正常
+        "outdated": 0,  # ≠ 版本過期
+        "missing": 0,  # ✗ 在 requirements.txt 但未安裝
+        "redundant": 0,  # ⚠ 在 requirements.txt 且是依賴
+        "version_mismatch": 0,  # ≠ 版本不符
+        "not_in_requirements": 0,  # ! 已安裝但不在 requirements.txt
+    }
 
+    # Count packages by type
+    top_level_packages = []
+    dependency_packages = set()
+    direct_dependencies = set()
+
+    for pkg_name, pkg_data in packages.items():
+        is_dependency = pkg_data.get("is_dependency", False)
+        is_redundant = pkg_data.get("status") == "redundant"
+
+        if not is_dependency:
+            top_level_packages.append(pkg_data)
+            status = pkg_data.get("status", "")
+            if status in status_counts:
+                status_counts[status] += 1
+            elif pkg_data.get("installed_version") and not pkg_data.get(
+                "required_version"
+            ):
+                status_counts["not_in_requirements"] += 1
+
+        # Collect dependencies
+        if "dependencies" in pkg_data:
+            for dep_name, dep_data in pkg_data["dependencies"].items():
+                direct_dependencies.add(dep_name)
+                dependency_packages.add(dep_name)
+
+                # Add nested dependencies
+                def collect_deps(deps_dict):
+                    if not deps_dict:
+                        return
+                    for name, data in deps_dict.items():
+                        dependency_packages.add(name)
+                        if "dependencies" in data:
+                            collect_deps(data["dependencies"])
+
+                if "dependencies" in dep_data:
+                    collect_deps(dep_data["dependencies"])
+
+    # Calculate total packages (excluding redundant ones)
+    non_redundant_top_level = [
+        pkg for pkg in top_level_packages if pkg.get("status") != "redundant"
+    ]
+    total_packages = len(non_redundant_top_level) + len(dependency_packages)
+    content.append("  Total Packages: ")
+    content.append(str(total_packages), style="cyan")
+    content.append("\n\n")
+
+    # Display top-level package statistics
+    content.append("  Top-level Packages:\n")
+    content.append("  • Total: ")
+    content.append(str(len(top_level_packages)), style="cyan")
+    content.append("\n")
+
+    # Only show non-zero status counts
+    for status, count in status_counts.items():
+        if count > 0:
+            content.append(f"  • {status_names[status]}: ")
+            content.append(str(count), style=status_styles[status])
+            content.append("\n")
+
+    # Display dependency statistics
     if show_tree:
-        # Add dependency statistics for tree view
-        total_deps = sum(
-            len(pkg.get("dependencies", {})) for pkg in packages.values()
-        )
-        direct_deps = sum(
-            1 for pkg in packages.values() if pkg.get("dependencies")
-        )
-        content.append("\n  • Total Dependencies: ")
-        content.append(str(total_deps), style="cyan")
-        content.append(" (Direct: ")
-        content.append(str(direct_deps), style="cyan")
-        content.append(")")
-    else:
-        # Add package type statistics for list view
-        redundant = sum(
-            1 for pkg in packages.values() if pkg.get("status") == "redundant"
-        )
-        outdated = sum(
-            1 for pkg in packages.values() if pkg.get("status") == "outdated"
-        )
-        if redundant:
-            content.append("\n  • Redundant Packages: ")
-            content.append(str(redundant), style="yellow")
-        if outdated:
-            content.append("\n  • Outdated Packages: ")
-            content.append(str(outdated), style="red")
+        content.append("\n  Dependencies:\n")
+        content.append("  • Total: ")
+        content.append(str(len(dependency_packages)), style="cyan")
+        content.append("\n")
+        content.append("  • Direct: ")
+        content.append(str(len(direct_dependencies)), style="cyan")
+
+    # Remove trailing newline
+    if content.plain.endswith("\n"):
+        content.remove_suffix("\n")
 
     return content
 
