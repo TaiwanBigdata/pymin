@@ -230,17 +230,57 @@ def create_dependency_tree(packages: Dict[str, Dict]) -> Table:
     return table
 
 
-def create_status_panel(
-    title: str, content: Union[str, Text], style: str = "info"
-) -> Panel:
-    """Create status panel with consistent styling"""
+def create_summary_panel(title: str, content: Union[str, Text]) -> Panel:
+    """Create summary panel with consistent styling"""
     return Panel.fit(
         content,
         title=title,
         title_align="left",
-        border_style=STYLES[style].color,
+        border_style="bright_blue",
         padding=(1, 2),
     )
+
+
+def create_package_summary(
+    packages: Dict[str, Dict], show_tree: bool = False
+) -> Text:
+    """Create package summary with consistent styling"""
+    content = Text()
+
+    # Basic package count
+    total_packages = len(packages)
+    content.append("  • Total Packages: ")
+    content.append(str(total_packages), style="cyan")
+
+    if show_tree:
+        # Add dependency statistics for tree view
+        total_deps = sum(
+            len(pkg.get("dependencies", {})) for pkg in packages.values()
+        )
+        direct_deps = sum(
+            1 for pkg in packages.values() if pkg.get("dependencies")
+        )
+        content.append("\n  • Total Dependencies: ")
+        content.append(str(total_deps), style="cyan")
+        content.append(" (Direct: ")
+        content.append(str(direct_deps), style="cyan")
+        content.append(")")
+    else:
+        # Add package type statistics for list view
+        redundant = sum(
+            1 for pkg in packages.values() if pkg.get("status") == "redundant"
+        )
+        outdated = sum(
+            1 for pkg in packages.values() if pkg.get("status") == "outdated"
+        )
+        if redundant:
+            content.append("\n  • Redundant Packages: ")
+            content.append(str(redundant), style="yellow")
+        if outdated:
+            content.append("\n  • Outdated Packages: ")
+            content.append(str(outdated), style="red")
+
+    return content
 
 
 def print_table(table: Table) -> None:

@@ -12,12 +12,13 @@ from .modern.core.package_analyzer import PackageAnalyzer
 from .modern.ui.console import (
     create_package_table,
     create_dependency_tree,
-    create_status_panel,
     print_error,
     print_warning,
     print_success,
     print_info,
     print_table,
+    create_package_summary,
+    create_summary_panel,
 )
 
 console = Console(force_terminal=True, color_system="auto")
@@ -163,26 +164,11 @@ def list(show_all: bool, show_tree: bool):
             print_table(tree_table)
 
             # Display summary
-            total_packages = len(packages)
-            total_deps = sum(
-                len(pkg.get("dependencies", {})) for pkg in packages.values()
-            )
-            direct_deps = sum(
-                1 for pkg in packages.values() if pkg.get("dependencies")
+            summary_content = create_package_summary(packages, show_tree=True)
+            console.print(
+                create_summary_panel("Package Summary", summary_content)
             )
 
-            summary = Panel.fit(
-                "\n".join(
-                    [
-                        f"  • Total Packages: {total_packages}",
-                        f"  • Total Dependencies: {total_deps} (Direct: {direct_deps})",
-                    ]
-                ),
-                title="Summary",
-                border_style="bright_blue",
-                padding=(1, 2),
-            )
-            console.print(summary)
             console.print("\n")
             print_info("Run pm fix to resolve package inconsistencies")
 
@@ -204,7 +190,7 @@ def list(show_all: bool, show_tree: bool):
             # Get all dependencies for redundancy check
             all_packages = pkg_analyzer.get_installed_packages()
             all_dependencies = set()
-            requirements = pkg_analyzer._parse_reqpmmuirements()
+            requirements = pkg_analyzer._parse_requirements()
             for pkg_info in all_packages.values():
                 deps = pkg_info.get("dependencies", [])
                 all_dependencies.update(deps)
@@ -241,8 +227,11 @@ def list(show_all: bool, show_tree: bool):
             )
             print_table(table)
 
-            # Show statistics
-            console.print(f"Total: [cyan]{len(packages)}[/cyan] packages")
+            # Display summary
+            summary_content = create_package_summary(packages)
+            console.print(
+                create_summary_panel("Package Summary", summary_content)
+            )
             console.print("\n")
 
     except Exception as e:
