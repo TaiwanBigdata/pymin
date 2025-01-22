@@ -5,7 +5,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
 from rich.box import DOUBLE
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Literal
 from ..ui.style import STYLES, SYMBOLS, get_status_symbol, get_style
 
 console = Console(force_terminal=True, color_system="auto")
@@ -236,15 +236,26 @@ def create_summary_panel(title: str, content: Union[str, Text]) -> Panel:
         content,
         title=title,
         title_align="left",
-        border_style="bright_blue",
+        border_style="dim",
         padding=(1, 2),
     )
 
 
 def create_package_summary(
-    packages: Dict[str, Dict], show_tree: bool = False, show_all: bool = False
+    packages: Union[List[Dict], Dict[str, Dict]],
+    mode: Literal[
+        "top_level", "all_installed", "dependency_tree"
+    ] = "top_level",
 ) -> Text:
-    """Create package summary with consistent styling"""
+    """Create package summary with consistent styling
+
+    Args:
+        packages: Package data in either list or dictionary format
+        mode: Display mode
+            - top_level: Show only top-level packages (default)
+            - all_installed: Show all installed packages
+            - dependency_tree: Show package dependency tree
+    """
     # Define status display names and styles
     status_names = {
         "normal": "Normal",
@@ -276,6 +287,15 @@ def create_package_summary(
         "not_in_requirements": 0,  # ! 已安裝但不在 requirements.txt
     }
 
+    # Convert list format to dictionary if needed
+    if isinstance(packages, list):
+        pkg_dict = {}
+        for pkg in packages:
+            pkg_name = pkg.get("name", "")
+            if pkg_name:
+                pkg_dict[pkg_name] = pkg
+        packages = pkg_dict
+
     # Count packages by type
     top_level_packages = []
     dependency_packages = set()
@@ -295,8 +315,8 @@ def create_package_summary(
             ):
                 status_counts["not_in_requirements"] += 1
 
-        # Collect dependencies
-        if "dependencies" in pkg_data:
+        # Collect dependencies only if we're showing the tree
+        if mode == "dependency_tree" and "dependencies" in pkg_data:
             for dep_name, dep_data in pkg_data["dependencies"].items():
                 direct_dependencies.add(dep_name)
                 dependency_packages.add(dep_name)
@@ -313,18 +333,33 @@ def create_package_summary(
                 if "dependencies" in dep_data:
                     collect_deps(dep_data["dependencies"])
 
-    # Calculate total packages (excluding redundant ones)
-    non_redundant_top_level = [
-        pkg for pkg in top_level_packages if pkg.get("status") != "redundant"
-    ]
-    total_packages = len(non_redundant_top_level) + len(dependency_packages)
-    content.append("  Total Packages: ")
+    # Calculate total packages
+    if mode == "dependency_tree":
+        non_redundant_top_level = [
+            pkg
+            for pkg in top_level_packages
+            if pkg.get("status") != "redundant"
+        ]
+        total_packages = len(non_redundant_top_level) + len(dependency_packages)
+    elif mode == "all_installed":
+        # For all_installed mode, include all packages
+        total_packages = len(packages)
+    else:
+        # For top_level mode, include all top-level packages
+        total_packages = len(top_level_packages)
+
+    # Show different title based on mode
+    if mode == "all_installed":
+        content.append("  Total Installed Packages: ")
+    else:
+        content.append("  Total Packages: ")
     content.append(str(total_packages), style="cyan")
     content.append("\n\n")
 
     # Display top-level package statistics
     content.append("  Top-level Packages:\n")
     content.append("  • Total: ")
+    # Always include all top-level packages in the count
     content.append(str(len(top_level_packages)), style="cyan")
     content.append("\n")
 
@@ -335,8 +370,8 @@ def create_package_summary(
             content.append(str(count), style=status_styles[status])
             content.append("\n")
 
-    # Display dependency statistics
-    if show_tree:
+    # Display dependency statistics only for tree view
+    if mode == "dependency_tree":
         content.append("\n  Dependencies:\n")
         content.append("  • Total: ")
         content.append(str(len(dependency_packages)), style="cyan")

@@ -164,7 +164,9 @@ def list(show_all: bool, show_tree: bool):
             print_table(tree_table)
 
             # Display summary
-            summary_content = create_package_summary(packages, show_tree=True)
+            summary_content = create_package_summary(
+                packages, mode="dependency_tree"
+            )
             console.print(
                 create_summary_panel("Package Summary", summary_content)
             )
@@ -177,11 +179,13 @@ def list(show_all: bool, show_tree: bool):
             if show_all:
                 packages = pkg_analyzer.get_installed_packages()
                 title = "All Installed Packages"
+                mode = "all_installed"
                 # Get top level packages for dimming check
                 top_level_packages = pkg_analyzer.get_top_level_packages()
             else:
                 packages = pkg_analyzer.get_top_level_packages()
                 title = "Top Level Packages"
+                mode = "top_level"
 
             if not packages:
                 print_warning("No installed packages found")
@@ -233,9 +237,7 @@ def list(show_all: bool, show_tree: bool):
             print_table(table)
 
             # Display summary
-            summary_content = create_package_summary(
-                packages, show_all=show_all
-            )
+            summary_content = create_package_summary(packages, mode=mode)
             console.print(
                 create_summary_panel("Package Summary", summary_content)
             )
