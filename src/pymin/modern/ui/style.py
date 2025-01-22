@@ -21,27 +21,37 @@ class StyleType(Enum):
     # Title styles
     TITLE = Style(color="cyan", bold=True)
     SUBTITLE = Style(color="blue", bold=True)
+    SECTION_TITLE = Style(color="white", bold=True)
+
     # Status styles
     SUCCESS = Style(color="green", bold=True)
     ERROR = Style(color="red", bold=True)
     WARNING = Style(color="yellow")
     INFO = Style(color="blue")
+
     # Package status styles
     NORMAL = Style(color="green")
     REDUNDANT = Style(color="yellow")
     NOT_INSTALLED = Style(color="red")
     NOT_IN_REQUIREMENTS = Style(color="blue")
     VERSION_MISMATCH = Style(color="red")
+
     # Package related styles
     PACKAGE_NAME = Style(color="cyan")
     PACKAGE_VERSION = Style(color="bright_black")
     PACKAGE_DEPENDENCY = Style(dim=True)
+
     # Environment related styles
     VENV_ACTIVE = Style(color="green", bold=True)
     VENV_INACTIVE = Style(color="yellow")
     VENV_PATH = Style(color="blue")
     ENV_NAME = Style(color="green")
     ENV_PATH = Style(color="bright_black")
+    ENV_PROJECT_NAME = Style(color="cyan")
+    ENV_VENV_NAME = Style(dim=True)
+    ENV_VERSION = Style(color="cyan")
+    ENV_FIELD_NAME = Style(dim=True)
+
     # Other styles
     HIGHLIGHT = Style(color="cyan")
     DIM = Style(dim=True)

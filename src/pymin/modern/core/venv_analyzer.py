@@ -166,32 +166,6 @@ class VenvAnalyzer:
             return f"{sys.version_info.major}.{sys.version_info.minor}"
         return "unknown"
 
-    def _get_pip_info(self) -> Tuple[str, str]:
-        """
-        Get pip version and location
-
-        Returns:
-            Tuple of (version, path)
-        """
-        try:
-            if sys.platform == "win32":
-                pip_path = self.venv_path / "Scripts" / "pip.exe"
-            else:
-                pip_path = self.venv_path / "bin" / "pip"
-
-            if not pip_path.exists():
-                return "unknown", str(pip_path)
-
-            # Use importlib.metadata to get pip version
-            try:
-                pip_version = importlib.metadata.version("pip")
-            except importlib.metadata.PackageNotFoundError:
-                pip_version = "unknown"
-
-            return pip_version, str(pip_path)
-        except Exception as e:
-            return "unknown", "not found"
-
     def _get_platform_info(self) -> Dict[str, str]:
         """
         Get detailed platform information
@@ -246,7 +220,7 @@ class VenvAnalyzer:
             "processor": platform.processor() or "unknown",
         }
 
-    def _get_system_python_info(self) -> Dict[str, str]:
+    def _get_system_python_info(self) -> Dict[str, Any]:
         """
         Get system Python information using environment variables and sys module
 
@@ -254,6 +228,7 @@ class VenvAnalyzer:
             Dictionary containing system Python information including:
             - executable: Path to the system Python executable
             - base_prefix: Base Python installation directory
+            - version: Python version
         """
         # Check if using conda with CONDA_PYTHON_EXE environment variable
         conda_python = os.environ.get("CONDA_PYTHON_EXE")
@@ -282,60 +257,81 @@ class VenvAnalyzer:
         return {
             "executable": system_python_path or sys.executable,
             "base_prefix": sys.base_prefix,
+            "version": f"{sys.version_info.major}.{sys.version_info.minor}",
         }
 
-    def _get_active_venv(self) -> Dict[str, Any]:
+    def _get_system_pip_info(self) -> Tuple[str, str]:
         """
-        Get information about the currently active virtual environment
-        """
-        active_venv = os.environ.get("VIRTUAL_ENV")
-        system_python = self._get_system_python_info()
-
-        if active_venv:
-            active_path = pathlib.Path(active_venv)
-            if sys.platform == "win32":
-                python_exec = active_path / "Scripts" / "python.exe"
-            else:
-                python_exec = active_path / "bin" / "python"
-
-            return {
-                "is_active": True,
-                "name": f"{active_path.parent.name}({active_path.name})",
-                "path": str(active_path),
-                "python_executable": str(python_exec),
-                "system_python": system_python,
-            }
-        else:
-            return {
-                "is_active": False,
-                "name": None,
-                "path": None,
-                "python_executable": system_python["executable"],
-                "system_python": system_python,
-            }
-
-    def _get_current_venv_status(self) -> Dict[str, Any]:
-        """
-        Get status of the virtual environment in current directory
+        Get system pip version and location
 
         Returns:
-            Dictionary containing current venv status
+            Tuple of (version, path)
         """
-        active_venv = os.environ.get("VIRTUAL_ENV", "")
-        current_is_active = str(self.venv_path) == active_venv
+        try:
+            # Get system pip path based on system Python path
+            system_python_path = self._get_system_python_info()["executable"]
+            system_python_dir = pathlib.Path(system_python_path).parent
 
-        # Get Python executable for current directory venv
-        if sys.platform == "win32":
-            python_exec = self.venv_path / "Scripts" / "python.exe"
-        else:
-            python_exec = self.venv_path / "bin" / "python"
+            if sys.platform == "win32":
+                pip_path = system_python_dir / "pip.exe"
+            else:
+                pip_path = system_python_dir / "pip"
 
-        return {
-            "name": f"{self.project_path.name}({self.venv_path.name})",
-            "path": str(self.venv_path),
-            "is_active": current_is_active,
-            "python_executable": str(python_exec),
-        }
+            if not pip_path.exists():
+                return "unknown", str(pip_path)
+
+            # Try to get system pip version
+            try:
+                # Save current sys.path
+                old_sys_path = sys.path.copy()
+
+                # Temporarily remove venv paths from sys.path
+                if self.has_venv:
+                    sys.path = [
+                        p for p in sys.path if str(self.venv_path) not in p
+                    ]
+
+                pip_version = importlib.metadata.version("pip")
+
+                # Restore sys.path
+                sys.path = old_sys_path
+
+            except importlib.metadata.PackageNotFoundError:
+                pip_version = "unknown"
+
+            return pip_version, str(pip_path)
+        except Exception as e:
+            return "unknown", "not found"
+
+    def _get_venv_pip_info(self) -> Tuple[str, str]:
+        """
+        Get virtual environment pip version and location
+
+        Returns:
+            Tuple of (version, path)
+        """
+        try:
+            if sys.platform == "win32":
+                pip_path = self.venv_path / "Scripts" / "pip.exe"
+            else:
+                pip_path = self.venv_path / "bin" / "pip"
+
+            if not pip_path.exists():
+                return "unknown", str(pip_path)
+
+            # Try to get venv pip version
+            try:
+                # Add venv site-packages to path temporarily if needed
+                if str(self.site_packages) not in sys.path:
+                    sys.path.insert(0, str(self.site_packages))
+
+                pip_version = importlib.metadata.version("pip")
+            except importlib.metadata.PackageNotFoundError:
+                pip_version = "unknown"
+
+            return pip_version, str(pip_path)
+        except Exception as e:
+            return "unknown", "not found"
 
     def check_venv_exists(self, project_path: Optional[str] = None) -> bool:
         """
@@ -371,9 +367,11 @@ class VenvAnalyzer:
         if env_path:
             if sys.platform == "win32":
                 python_exec = env_path / "Scripts" / "python.exe"
+                pip_exec = env_path / "Scripts" / "pip.exe"
                 site_packages = env_path / "Lib" / "site-packages"
             else:
                 python_exec = env_path / "bin" / "python"
+                pip_exec = env_path / "bin" / "pip"
                 # Find python3.x directory for site-packages
                 lib_path = env_path / "lib"
                 python_dirs = (
@@ -402,13 +400,21 @@ class VenvAnalyzer:
             except (StopIteration, OSError):
                 version = None
 
+            # Get pip version
+            try:
+                if str(self.site_packages) not in sys.path:
+                    sys.path.insert(0, str(self.site_packages))
+                pip_version = importlib.metadata.version("pip")
+            except importlib.metadata.PackageNotFoundError:
+                pip_version = "unknown"
+
             return {
                 "has_venv": True,
                 "is_active": is_active,
                 "name": f"{project_name}({env_name})",
                 "path": str(env_path),
-                "python_executable": str(python_exec),
-                "version": version,
+                "python": {"executable": str(python_exec), "version": version},
+                "pip": {"executable": str(pip_exec), "version": pip_version},
                 "site_packages": str(site_packages) if site_packages else None,
             }
         else:
@@ -418,8 +424,8 @@ class VenvAnalyzer:
                 "is_active": False,
                 "name": f"{project_name}(None)" if project_name else None,
                 "path": None,
-                "python_executable": None,
-                "version": None,
+                "python": None,
+                "pip": None,
                 "site_packages": None,
             }
 
@@ -429,6 +435,9 @@ class VenvAnalyzer:
         """
         platform_info = self._get_platform_info()
         system_python = self._get_system_python_info()
+
+        # Get system pip info
+        system_pip_version, system_pip_path = self._get_system_pip_info()
 
         # Get active environment info
         active_venv = os.environ.get("VIRTUAL_ENV")
@@ -453,15 +462,14 @@ class VenvAnalyzer:
                 "name": self.project_path.name,
                 "path": str(self.project_path),
             },
-            "system_python": {
-                "executable": system_python["executable"],
-                "base_prefix": system_python["base_prefix"],
+            "system": {
+                "python": system_python,
+                "pip": {"version": system_pip_version, "path": system_pip_path},
+                "platform": platform_info,
             },
             "environment_status": {
                 "active_environment": active_env,
                 "current_environment": current_env,
                 "is_same_environment": is_same_env,
             },
-            "platform": platform_info,
-            "pip": self._get_pip_info() if self.has_venv else None,
         }

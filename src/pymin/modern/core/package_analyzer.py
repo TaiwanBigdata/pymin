@@ -33,13 +33,13 @@ class PackageStatus(str, Enum):
     def get_description(cls, status: "PackageStatus") -> str:
         """Get the description for a status value"""
         descriptions = {
-            cls.REDUNDANT: "套件已列在 requirements.txt 但也是其他套件的依賴",
-            cls.NORMAL: "套件正常安裝且已列在 requirements.txt",
-            cls.NOT_INSTALLED: "套件列在 requirements.txt 但未安裝",
-            cls.NOT_IN_REQUIREMENTS: "套件已安裝但未列在 requirements.txt",
-            cls.VERSION_MISMATCH: "套件安裝版本與 requirements.txt 不符",
+            cls.REDUNDANT: "Package is listed in requirements.txt but is also a dependency of another package",
+            cls.NORMAL: "Package is properly installed and listed in requirements.txt",
+            cls.NOT_INSTALLED: "Package is listed in requirements.txt but not installed",
+            cls.NOT_IN_REQUIREMENTS: "Package is installed but not listed in requirements.txt",
+            cls.VERSION_MISMATCH: "Installed package version does not match requirements.txt",
         }
-        return descriptions.get(status, "未知狀態")
+        return descriptions.get(status, "Unknown status")
 
 
 class PackageAnalyzer:
