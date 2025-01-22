@@ -6,7 +6,15 @@ from rich.panel import Panel
 from rich.text import Text
 from rich.box import DOUBLE
 from typing import Dict, List, Optional, Union, Literal
-from ..ui.style import StyleType, SymbolType, get_status_symbol, get_style
+from ..ui.style import (
+    StyleType,
+    SymbolType,
+    get_status_symbol,
+    get_style,
+    DEFAULT_PANEL,
+    DEFAULT_TABLE,
+    Style,
+)
 
 console = Console(force_terminal=True, color_system="auto")
 
@@ -46,19 +54,20 @@ def create_package_table(
     """Create package table with consistent styling"""
     table = Table(
         title=title,
-        show_header=True,
-        header_style="bold magenta",
-        title_justify="left",
-        expand=False,
+        show_header=DEFAULT_TABLE.show_header,
+        header_style=DEFAULT_TABLE.header_style,
+        title_justify=DEFAULT_TABLE.title_justify,
+        expand=DEFAULT_TABLE.expand,
+        padding=DEFAULT_TABLE.padding,
     )
 
     # Add columns with specific styles and alignment
-    table.add_column("Package Name", style="cyan", no_wrap=True)
-    table.add_column("Required", style="blue")
-    table.add_column("Installed", style="cyan")
+    table.add_column("Package", style=StyleType.PACKAGE_NAME())
+    table.add_column("Required", style=StyleType.PACKAGE_VERSION())
+    table.add_column("Installed", style=StyleType.PACKAGE_VERSION())
     table.add_column("Status", justify="center")
 
-    # Add rows
+    # Add rows with consistent styling
     for row in rows:
         if not row:  # Skip empty rows
             continue
@@ -66,43 +75,51 @@ def create_package_table(
         package_data = row[0]  # Get the package data from the row
         styled_row = []
 
-        # Handle package name
+        # Handle package name with consistent styling
         name = package_data.get("name", "")
         if package_data.get("redundant"):
             name_text = Text()
-            name_text.append(name)
-            name_text.append(" ", style="yellow")
-            name_text.append("(redundant)", style="yellow")
+            name_text.append(name, style=StyleType.PACKAGE_NAME())
+            name_text.append(" ", style=StyleType.WARNING())
+            name_text.append("(redundant)", style=StyleType.WARNING())
         else:
-            name_text = Text(name, style="cyan")
+            name_text = Text(name, style=StyleType.PACKAGE_NAME())
         styled_row.append(name_text)
 
         # Handle required version
         required_version = package_data.get("required_version", "")
         if required_version:
-            required_text = Text(required_version.lstrip("="), style="blue")
+            required_text = Text(
+                required_version.lstrip("="), style=Style(color="blue")
+            )
         elif not package_data.get("is_dependency"):
-            required_text = Text("None", style="yellow")
+            required_text = Text("None", style=Style(color="yellow"))
         else:
             required_text = Text("")
         styled_row.append(required_text)
 
         # Handle installed version
         installed_version = package_data.get("installed_version", "")
+        status = package_data.get("status", "")
+        status_style = get_style(status)
+
         if installed_version:
-            installed_text = Text(installed_version, style="cyan")
+            installed_text = Text(installed_version, style=Style(color="cyan"))
         else:
-            installed_text = Text("None", style="yellow")
+            installed_text = Text("None", style=Style(color="yellow"))
         styled_row.append(installed_text)
 
         # Handle status
-        status = package_data.get("status", "")
-        status_text = Text(get_status_symbol(status), style=get_style(status))
+        status_symbol = get_status_symbol(status)
+        if status in ["missing", "version_mismatch"]:
+            status_text = Text(status_symbol, style=StyleType.ERROR())
+        else:
+            status_text = Text(status_symbol, style=status_style)
         styled_row.append(status_text)
 
-        # Add the row to the table
+        # Add the row to the table with appropriate styling
         if package_data.get("is_dependency"):
-            table.add_row(*styled_row, style="dim")
+            table.add_row(*styled_row, style=StyleType.PACKAGE_DEPENDENCY())
         else:
             table.add_row(*styled_row)
 
@@ -113,16 +130,17 @@ def create_dependency_tree(packages: Dict[str, Dict]) -> Table:
     """Create dependency tree table with consistent styling"""
     table = Table(
         title="Package Dependencies",
-        show_header=True,
-        header_style="bold magenta",
-        title_justify="left",
-        expand=False,
+        show_header=DEFAULT_TABLE.show_header,
+        header_style=DEFAULT_TABLE.header_style,
+        title_justify=DEFAULT_TABLE.title_justify,
+        expand=DEFAULT_TABLE.expand,
+        padding=DEFAULT_TABLE.padding,
     )
 
     # Add columns with specific styles and alignment
-    table.add_column("Package Tree", style="cyan", no_wrap=True)
-    table.add_column("Required", style="blue")
-    table.add_column("Installed", style="cyan")
+    table.add_column("Package Tree", style=StyleType.PACKAGE_NAME())
+    table.add_column("Required", style=StyleType.PACKAGE_VERSION())
+    table.add_column("Installed", style=StyleType.PACKAGE_VERSION())
     table.add_column("Status", justify="center")
 
     def format_tree_line(
@@ -153,17 +171,26 @@ def create_dependency_tree(packages: Dict[str, Dict]) -> Table:
         required_version = data.get("required_version", "")
         display_name = data.get("name", name)  # Use name from data if available
 
-        # Format version displays for top-level packages
-        if level == 0:
-            required_version = (
-                required_version.lstrip("=")
-                if required_version
-                else "[yellow]None[/yellow]"
+        # Format version displays
+        if required_version:
+            required_text = Text(
+                required_version.lstrip("="), style=Style(color="blue")
             )
-            installed_version = (
-                installed_version
+        else:
+            required_text = Text("None", style=Style(color="yellow"))
+
+        if installed_version:
+            installed_text = Text(installed_version, style=Style(color="cyan"))
+        else:
+            installed_text = Text("None", style=Style(color="yellow"))
+
+        # For non-top-level packages, add dim effect and hide required version
+        if level > 0:
+            required_text = Text("")
+            installed_text.style = (
+                Style(color="cyan", dim=True)
                 if installed_version
-                else "[yellow]None[/yellow]"
+                else Style(color="yellow", dim=True)
             )
 
         # Get status and format package name
@@ -183,8 +210,8 @@ def create_dependency_tree(packages: Dict[str, Dict]) -> Table:
 
         return [
             display_name,
-            required_version if level == 0 else "",
-            installed_version,
+            required_text,
+            installed_text,
             status_symbol,
         ]
 
@@ -241,9 +268,9 @@ def create_summary_panel(title: str, content: Union[str, Text]) -> Panel:
     return Panel.fit(
         content,
         title=title,
-        title_align="left",
-        border_style="dim",
-        padding=(1, 2),
+        title_align=DEFAULT_PANEL.title_align,
+        border_style=DEFAULT_PANEL.border_style,
+        padding=DEFAULT_PANEL.padding,
     )
 
 

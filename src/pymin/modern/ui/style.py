@@ -3,6 +3,7 @@
 from rich.style import Style
 from rich.theme import Theme
 from enum import Enum
+from dataclasses import dataclass
 
 # Color constants
 COLORS = {
@@ -13,6 +14,26 @@ COLORS = {
     "highlight": "cyan",
     "dim": "bright_black",
 }
+
+
+@dataclass
+class PanelConfig:
+    """Standard panel configuration"""
+
+    title_align: str = "left"
+    border_style: str = "blue"
+    padding: tuple = (1, 2)
+
+
+@dataclass
+class TableConfig:
+    """Standard table configuration"""
+
+    title_justify: str = "left"
+    show_header: bool = True
+    header_style: str = "bold magenta"
+    expand: bool = False
+    padding: tuple = (0, 1)
 
 
 class StyleType(Enum):
@@ -96,9 +117,14 @@ THEME = Theme(
 def get_status_symbol(status: str) -> str:
     """Get status symbol for given status"""
     try:
+        # Special case for missing packages
+        if status.lower() == "missing":
+            return SymbolType.NOT_INSTALLED.value
         return SymbolType[status.upper()].value
     except KeyError:
-        return SymbolType.BULLET.value
+        return (
+            SymbolType.NOT_INSTALLED.value
+        )  # Default to NOT_INSTALLED symbol for unknown status
 
 
 def get_style(style_name: str) -> Style:
@@ -107,3 +133,8 @@ def get_style(style_name: str) -> Style:
         return StyleType[style_name.upper()].value
     except KeyError:
         return Style()
+
+
+# Default configurations
+DEFAULT_PANEL = PanelConfig()
+DEFAULT_TABLE = TableConfig()

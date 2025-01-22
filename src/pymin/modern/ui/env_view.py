@@ -103,8 +103,10 @@ def create_env_info_panel(env_info: Dict[str, Any]) -> Panel:
     return Panel(
         content,
         title="Environment Information",
-        expand=False,
+        title_align="left",
         border_style="blue",
+        padding=(1, 2),
+        expand=True,
     )
 
 
@@ -118,4 +120,6 @@ def display_environment_info(env_info: Dict[str, Any]) -> None:
         return
 
     # Display the formatted environment information panel
+    console.print("\n")
     console.print(create_env_info_panel(env_info))
+    console.print("\n")
