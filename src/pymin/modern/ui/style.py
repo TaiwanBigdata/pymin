@@ -2,6 +2,7 @@
 
 from rich.style import Style
 from rich.theme import Theme
+from enum import Enum
 
 # Color constants
 COLORS = {
@@ -13,56 +14,61 @@ COLORS = {
     "dim": "bright_black",
 }
 
-# Style definitions
-STYLES = {
-    # Title styles
-    "title": Style(color="cyan", bold=True),
-    "subtitle": Style(color="blue", bold=True),
-    # Status styles
-    "success": Style(color="green", bold=True),
-    "error": Style(color="red", bold=True),
-    "warning": Style(color="yellow"),
-    "info": Style(color="blue"),
-    # Package status styles
-    "normal": Style(color="green"),
-    "redundant": Style(color="yellow"),
-    "not_installed": Style(color="red"),
-    "not_in_requirements": Style(color="blue"),
-    "version_mismatch": Style(color="red"),
-    # Package related styles
-    "package_name": Style(color="cyan"),
-    "package_version": Style(color="bright_black"),
-    "package_dependency": Style(dim=True),
-    # Environment related styles
-    "venv_active": Style(color="green", bold=True),
-    "venv_inactive": Style(color="yellow"),
-    "venv_path": Style(color="blue"),
-    "env_name": Style(color="green"),
-    "env_path": Style(color="bright_black"),
-    # Other styles
-    "highlight": Style(color="cyan"),
-    "dim": Style(dim=True),
-    "url": Style(color="blue", underline=True),
-}
 
-# Status symbols
-SYMBOLS = {
-    "success": "✓",
-    "error": "✗",
-    "warning": "⚠",
-    "info": "ℹ",
+class StyleType(Enum):
+    """Style definitions that can be used directly without .value"""
+
+    # Title styles
+    TITLE = Style(color="cyan", bold=True)
+    SUBTITLE = Style(color="blue", bold=True)
+    # Status styles
+    SUCCESS = Style(color="green", bold=True)
+    ERROR = Style(color="red", bold=True)
+    WARNING = Style(color="yellow")
+    INFO = Style(color="blue")
+    # Package status styles
+    NORMAL = Style(color="green")
+    REDUNDANT = Style(color="yellow")
+    NOT_INSTALLED = Style(color="red")
+    NOT_IN_REQUIREMENTS = Style(color="blue")
+    VERSION_MISMATCH = Style(color="red")
+    # Package related styles
+    PACKAGE_NAME = Style(color="cyan")
+    PACKAGE_VERSION = Style(color="bright_black")
+    PACKAGE_DEPENDENCY = Style(dim=True)
+    # Environment related styles
+    VENV_ACTIVE = Style(color="green", bold=True)
+    VENV_INACTIVE = Style(color="yellow")
+    VENV_PATH = Style(color="blue")
+    ENV_NAME = Style(color="green")
+    ENV_PATH = Style(color="bright_black")
+    # Other styles
+    HIGHLIGHT = Style(color="cyan")
+    DIM = Style(dim=True)
+    URL = Style(color="blue", underline=True)
+    COMMAND = Style(color="cyan")
+
+    def __call__(self):
+        return self.value
+
+
+class SymbolType(Enum):
+    SUCCESS = "✓"
+    ERROR = "✗"
+    WARNING = "⚠"
+    INFO = "ℹ"
     # Package status symbols
-    "normal": "✓",
-    "redundant": "⚠",
-    "not_installed": "✗",
-    "not_in_requirements": "△",
-    "version_mismatch": "≠",
-    "arrow": "→",
-    "bullet": "•",
-    "tree_branch": "├──",
-    "tree_last": "└──",
-    "tree_vertical": "│",
-}
+    NORMAL = "✓"
+    REDUNDANT = "⚠"
+    NOT_INSTALLED = "✗"
+    NOT_IN_REQUIREMENTS = "△"
+    VERSION_MISMATCH = "≠"
+    ARROW = "→"
+    BULLET = "•"
+    TREE_BRANCH = "├──"
+    TREE_LAST = "└──"
+    TREE_VERTICAL = "│"
+
 
 # Theme definition
 THEME = Theme(
@@ -79,9 +85,15 @@ THEME = Theme(
 
 def get_status_symbol(status: str) -> str:
     """Get status symbol for given status"""
-    return SYMBOLS.get(status, "•")
+    try:
+        return SymbolType[status.upper()].value
+    except KeyError:
+        return SymbolType.BULLET.value
 
 
 def get_style(style_name: str) -> Style:
     """Get style for given style name"""
-    return STYLES.get(style_name, Style())
+    try:
+        return StyleType[style_name.upper()].value
+    except KeyError:
+        return Style()

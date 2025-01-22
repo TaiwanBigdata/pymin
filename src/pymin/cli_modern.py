@@ -19,7 +19,9 @@ from .modern.ui.console import (
     print_table,
     create_package_summary,
     create_summary_panel,
+    create_fix_tip,
 )
+from typing import Union, List, Dict
 
 console = Console(force_terminal=True, color_system="auto")
 
@@ -142,6 +144,21 @@ def cli(version: bool = False):
 cli.format_commands = format_help_message
 
 
+def should_show_fix_tip(packages: Union[List[Dict], Dict[str, Dict]]) -> bool:
+    """Check if there are any non-normal package statuses in top-level packages"""
+    if isinstance(packages, dict):
+        return any(
+            pkg.get("status") not in [None, "normal"]
+            for pkg in packages.values()
+            if not pkg.get("is_dependency")
+        )
+    return any(
+        pkg.get("status") not in [None, "normal"]
+        for pkg in packages
+        if not pkg.get("is_dependency")
+    )
+
+
 @cli.command()
 @click.option(
     "-a", "--all", "show_all", is_flag=True, help="Show all installed packages"
@@ -171,8 +188,10 @@ def list(show_all: bool, show_tree: bool):
                 create_summary_panel("Package Summary", summary_content)
             )
 
-            console.print("\n")
-            print_info("Run pm fix to resolve package inconsistencies")
+            # Show fix tip if needed
+            if should_show_fix_tip(packages):
+                console.print()
+                create_fix_tip()
 
         else:
             # Get package data
@@ -242,6 +261,10 @@ def list(show_all: bool, show_tree: bool):
                 create_summary_panel("Package Summary", summary_content)
             )
             console.print("\n")
+
+            # Show fix tip if needed
+            if should_show_fix_tip(packages):
+                create_fix_tip()
 
     except Exception as e:
         print_error(f"Error: {str(e)}")

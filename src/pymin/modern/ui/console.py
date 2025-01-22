@@ -6,29 +6,35 @@ from rich.panel import Panel
 from rich.text import Text
 from rich.box import DOUBLE
 from typing import Dict, List, Optional, Union, Literal
-from ..ui.style import STYLES, SYMBOLS, get_status_symbol, get_style
+from ..ui.style import StyleType, SymbolType, get_status_symbol, get_style
 
 console = Console(force_terminal=True, color_system="auto")
 
 
 def print_error(message: str):
     """Display error message"""
-    console.print(f"{SYMBOLS['error']} {message}", style=STYLES["error"])
+    console.print(
+        f"{SymbolType.ERROR.value} {message}", style=StyleType.ERROR()
+    )
 
 
 def print_warning(message: str):
     """Display warning message"""
-    console.print(f"{SYMBOLS['warning']} {message}", style=STYLES["warning"])
+    console.print(
+        f"{SymbolType.WARNING.value} {message}", style=StyleType.WARNING()
+    )
 
 
 def print_success(message: str):
     """Display success message"""
-    console.print(f"{SYMBOLS['success']} {message}", style=STYLES["success"])
+    console.print(
+        f"{SymbolType.SUCCESS.value} {message}", style=StyleType.SUCCESS()
+    )
 
 
 def print_info(message: str):
     """Display info message"""
-    console.print(f"{SYMBOLS['info']} {message}", style=STYLES["info"])
+    console.print(f"{SymbolType.INFO.value} {message}", style=StyleType.INFO())
 
 
 def create_package_table(
@@ -350,15 +356,15 @@ def create_package_summary(
 
     # Show different title based on mode
     if mode == "all_installed":
-        content.append("  Total Installed Packages: ")
+        content.append("Total Installed Packages: ")
     else:
-        content.append("  Total Packages: ")
+        content.append("Total Packages: ")
     content.append(str(total_packages), style="cyan")
     content.append("\n\n")
 
     # Display top-level package statistics
-    content.append("  Top-level Packages:\n")
-    content.append("  • Total: ")
+    content.append("Top-level Packages:\n")
+    content.append("• Total: ")
     # Always include all top-level packages in the count
     content.append(str(len(top_level_packages)), style="cyan")
     content.append("\n")
@@ -366,17 +372,17 @@ def create_package_summary(
     # Only show non-zero status counts
     for status, count in status_counts.items():
         if count > 0:
-            content.append(f"  • {status_names[status]}: ")
+            content.append(f"• {status_names[status]}: ")
             content.append(str(count), style=status_styles[status])
             content.append("\n")
 
     # Display dependency statistics only for tree view
     if mode == "dependency_tree":
-        content.append("\n  Dependencies:\n")
-        content.append("  • Total: ")
+        content.append("\nDependencies:\n")
+        content.append("• Total: ")
         content.append(str(len(dependency_packages)), style="cyan")
         content.append("\n")
-        content.append("  • Direct: ")
+        content.append("• Direct: ")
         content.append(str(len(direct_dependencies)), style="cyan")
 
     # Remove trailing newline
@@ -384,6 +390,15 @@ def create_package_summary(
         content.remove_suffix("\n")
 
     return content
+
+
+def create_fix_tip() -> None:
+    """Display tip message for package issues"""
+    tip = Text(style=StyleType.DIM())
+    tip.append("Tip: Run ")
+    tip.append("pm fix", style=StyleType.COMMAND())
+    tip.append(" to resolve package inconsistencies")
+    console.print(tip)
 
 
 def print_table(table: Table) -> None:
