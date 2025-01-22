@@ -314,6 +314,12 @@ def create_package_summary(
         if not is_dependency:
             top_level_packages.append(pkg_data)
             status = pkg_data.get("status", "")
+            # Handle missing packages (required but not installed)
+            if pkg_data.get("required_version") and not pkg_data.get(
+                "installed_version"
+            ):
+                status = "missing"
+            # Handle other statuses
             if status in status_counts:
                 status_counts[status] += 1
             elif pkg_data.get("installed_version") and not pkg_data.get(
@@ -364,16 +370,27 @@ def create_package_summary(
 
     # Display top-level package statistics
     content.append("Top-level Packages:\n")
-    content.append("• Total: ")
-    # Always include all top-level packages in the count
-    content.append(str(len(top_level_packages)), style="cyan")
-    content.append("\n")
 
-    # Only show non-zero status counts
-    for status, count in status_counts.items():
-        if count > 0:
+    # Show total count only for all_installed and dependency_tree modes
+    if mode != "top_level":
+        content.append("• Total: ")
+        content.append(str(len(top_level_packages)), style="cyan")
+        content.append("\n")
+
+    # Only show non-zero status counts in a consistent order
+    status_order = [
+        "normal",
+        "missing",
+        "redundant",
+        "version_mismatch",
+        "not_in_requirements",
+    ]
+    for status in status_order:
+        if status_counts[status] > 0:
             content.append(f"• {status_names[status]}: ")
-            content.append(str(count), style=status_styles[status])
+            content.append(
+                str(status_counts[status]), style=status_styles[status]
+            )
             content.append("\n")
 
     # Display dependency statistics only for tree view
