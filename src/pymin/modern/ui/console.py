@@ -176,21 +176,22 @@ def create_dependency_tree(packages: Dict[str, Dict]) -> Table:
             required_text = Text(
                 required_version.lstrip("="), style=Style(color="blue")
             )
-        else:
+        elif level == 0 and not data.get("is_dependency"):
             required_text = Text("None", style=Style(color="yellow"))
+        else:
+            required_text = Text("")
 
         if installed_version:
             installed_text = Text(installed_version, style=Style(color="cyan"))
         else:
             installed_text = Text("None", style=Style(color="yellow"))
 
-        # For non-top-level packages, add dim effect and hide required version
+        # For non-top-level packages, add dim effect
         if level > 0:
-            required_text = Text("")
-            installed_text.style = (
-                Style(color="cyan", dim=True)
-                if installed_version
-                else Style(color="yellow", dim=True)
+            if required_version:
+                required_text.style = Style(color="blue", dim=True)
+            installed_text.style = Style(
+                color="cyan" if installed_version else "yellow", dim=True
             )
 
         # Get status and format package name
