@@ -100,13 +100,12 @@ def create_env_info_panel(env_info: Dict[str, Any]) -> Panel:
         + "\n".join(env_status_info)
     )
 
-    return Panel(
+    return Panel.fit(
         content,
         title="Environment Information",
         title_align="left",
         border_style="blue",
         padding=(1, 2),
-        expand=True,
     )
 
 
