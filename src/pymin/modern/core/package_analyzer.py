@@ -5,7 +5,7 @@ from packaging.version import Version, parse as parse_version
 import importlib.metadata
 from enum import Enum
 
-from pymin.modern.core.venv_analyzer import VenvAnalyzer
+from .venv_analyzer import VenvAnalyzer
 
 
 class PackageStatus(str, Enum):

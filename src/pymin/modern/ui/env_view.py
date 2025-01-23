@@ -1,5 +1,6 @@
 """Environment information display formatting and rendering"""
 
+import json
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -24,33 +25,14 @@ def create_env_info_panel(env_info: Dict[str, Any]) -> Panel:
     system_python = system_info["python"]
     system_pip = system_info["pip"]
     platform_info = system_info["platform"]
-
     # Format system information section
     system_info_display = [
-        f"[dim]Python Version:[/dim] [cyan]{system_python['version']}[/cyan]",
-        f"[dim]Platform:[/dim] {platform_info['system']} {platform_info['release']}",
+        f"[dim]Python:[/dim] [cyan]{system_python['version']}[/cyan] {system_python["executable"]}",
+        f"[dim]Pip:[/dim] [cyan]{system_pip['version']}[/cyan] {system_pip["path"]}",
+        f"[dim]Platform:[/dim] {platform_info['os']} {platform_info['os_version']} {platform_info['build_version']} ({platform_info['processor']}, {platform_info['machine']}) {platform_info['system']} {platform_info['release']}",
         f"[dim]Working Directory:[/dim] [cyan]{env_info['project']['path']}[/cyan]",
         f"[dim]Pip:[/dim] [cyan]{system_pip['version']}[/cyan] at [cyan]{system_pip['path']}[/cyan]",
-        f"[dim]User Scripts:[/dim] [cyan]{str(pathlib.Path(system_python['executable']).parent)}[/cyan]",
     ]
-
-    # Update display with virtual environment information if available
-    if current_env["has_venv"]:
-        if current_env["python"] and current_env["python"]["version"]:
-            system_info_display[0] = (
-                f"[dim]Python Version:[/dim] [cyan]{current_env['python']['version']}[/cyan]"
-            )
-        if current_env["pip"]:
-            system_info_display[3] = (
-                f"[dim]Pip:[/dim] [cyan]{current_env['pip']['version']}[/cyan] at [cyan]{current_env['pip']['executable']}[/cyan]"
-            )
-            scripts_path = str(
-                pathlib.Path(current_env["path"])
-                / ("Scripts" if platform_info["system"] == "Windows" else "bin")
-            )
-            system_info_display[4] = (
-                f"[dim]User Scripts:[/dim] [cyan]{scripts_path}[/cyan]"
-            )
 
     # Initialize environment status information list
     env_status_info = []

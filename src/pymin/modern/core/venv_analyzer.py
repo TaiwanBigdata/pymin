@@ -6,6 +6,8 @@ import importlib.metadata
 from enum import Enum
 from typing import Optional, Dict, Any, Tuple
 
+from .system_analyzer import SystemAnalyzer
+
 
 class VenvNotFoundError(Exception):
     """Custom exception for when virtual environment is not found"""
@@ -14,23 +16,15 @@ class VenvNotFoundError(Exception):
 
 
 class VenvAnalyzer:
-    """
-    Analyzer for Python virtual environment metadata and information
-    """
+    """Analyzer for Python virtual environment metadata and information"""
 
-    # Common virtual environment directory names
     VENV_DIRS = ["venv", ".venv", "env", ".env"]
 
     def __init__(self, project_path: Optional[str] = None):
-        """
-        Initialize VenvAnalyzer with project path
-
-        Args:
-            project_path: Path to the project directory. If None, uses current directory
-        """
         self.project_path = pathlib.Path(
             project_path or pathlib.Path.cwd()
         ).resolve()
+        self.system_analyzer = SystemAnalyzer()  # Initialize SystemAnalyzer
         self.has_venv = self.check_venv_exists()
 
         if self.has_venv:
@@ -166,143 +160,6 @@ class VenvAnalyzer:
             return f"{sys.version_info.major}.{sys.version_info.minor}"
         return "unknown"
 
-    def _get_platform_info(self) -> Dict[str, str]:
-        """
-        Get detailed platform information
-
-        Returns:
-            Dictionary containing platform details:
-            - system: Kernel name (Darwin/Windows/Linux)
-            - os: Operating system name (macOS/Windows/Linux)
-            - os_version: Operating system version
-            - release: Kernel release version
-            - machine: Machine architecture
-            - processor: Processor type
-        """
-        system = platform.system()
-
-        # Initialize OS related information
-        os_name = system
-        os_version = ""
-
-        # Get version information for different operating systems
-        if system == "Darwin":
-            os_name = "macOS"
-            try:
-                os_version = platform.mac_ver()[0]
-            except:
-                os_version = "unknown"
-        elif system == "Windows":
-            os_name = "Windows"
-            try:
-                os_version = platform.win32_ver()[0]
-            except:
-                os_version = "unknown"
-        elif system == "Linux":
-            os_name = "Linux"
-            try:
-                # Try to read distro information
-                os_version = platform.freedesktop_os_release().get(
-                    "VERSION_ID", ""
-                )
-            except:
-                try:
-                    os_version = platform.linux_distribution()[1]
-                except:
-                    os_version = "unknown"
-
-        return {
-            "system": system,
-            "os": os_name,
-            "os_version": os_version,
-            "release": platform.release(),
-            "machine": platform.machine(),
-            "processor": platform.processor() or "unknown",
-        }
-
-    def _get_system_python_info(self) -> Dict[str, Any]:
-        """
-        Get system Python information using environment variables and sys module
-
-        Returns:
-            Dictionary containing system Python information including:
-            - executable: Path to the system Python executable
-            - base_prefix: Base Python installation directory
-            - version: Python version
-        """
-        # Check if using conda with CONDA_PYTHON_EXE environment variable
-        conda_python = os.environ.get("CONDA_PYTHON_EXE")
-        # Use PATH environment variable
-        path_dirs = os.environ.get("PATH", "").split(os.pathsep)
-
-        system_python_path = None
-
-        if conda_python and os.path.exists(conda_python):
-            # If using conda environment
-            system_python_path = conda_python
-        else:
-            # Check Python in PATH
-            for path_dir in path_dirs:
-                if "conda" in path_dir or "virtualenv" in path_dir:
-                    continue
-
-                python_exec = os.path.join(
-                    path_dir,
-                    "python.exe" if sys.platform == "win32" else "python",
-                )
-                if os.path.exists(python_exec):
-                    system_python_path = python_exec
-                    break
-
-        return {
-            "executable": system_python_path or sys.executable,
-            "base_prefix": sys.base_prefix,
-            "version": f"{sys.version_info.major}.{sys.version_info.minor}",
-        }
-
-    def _get_system_pip_info(self) -> Tuple[str, str]:
-        """
-        Get system pip version and location
-
-        Returns:
-            Tuple of (version, path)
-        """
-        try:
-            # Get system pip path based on system Python path
-            system_python_path = self._get_system_python_info()["executable"]
-            system_python_dir = pathlib.Path(system_python_path).parent
-
-            if sys.platform == "win32":
-                pip_path = system_python_dir / "pip.exe"
-            else:
-                pip_path = system_python_dir / "pip"
-
-            if not pip_path.exists():
-                return "unknown", str(pip_path)
-
-            # Try to get system pip version
-            try:
-                # Save current sys.path
-                old_sys_path = sys.path.copy()
-
-                # Temporarily remove venv paths from sys.path
-                if self.has_venv:
-                    sys.path = [
-                        p for p in sys.path if str(self.venv_path) not in p
-                    ]
-
-                pip_version = importlib.metadata.version("pip")
-
-                # Restore sys.path
-                sys.path = old_sys_path
-
-            except importlib.metadata.PackageNotFoundError:
-                pip_version = "unknown"
-
-            return pip_version, str(pip_path)
-        except Exception as e:
-            return "unknown", "not found"
-
     def _get_venv_pip_info(self) -> Tuple[str, str]:
         """
         Get virtual environment pip version and location
@@ -430,14 +287,9 @@ class VenvAnalyzer:
             }
 
     def get_venv_info(self) -> Dict[str, Any]:
-        """
-        Get information about the system and virtual environment status
-        """
-        platform_info = self._get_platform_info()
-        system_python = self._get_system_python_info()
-
-        # Get system pip info
-        system_pip_version, system_pip_path = self._get_system_pip_info()
+        """Get information about the system and virtual environment status"""
+        # Get system information using SystemEnvironmentDetector
+        system_info = self.system_analyzer.get_system_info()
 
         # Get active environment info
         active_venv = os.environ.get("VIRTUAL_ENV")
@@ -463,9 +315,9 @@ class VenvAnalyzer:
                 "path": str(self.project_path),
             },
             "system": {
-                "python": system_python,
-                "pip": {"version": system_pip_version, "path": system_pip_path},
-                "platform": platform_info,
+                "python": system_info["python"],
+                "pip": system_info["pip"],
+                "platform": system_info["platform"],
             },
             "environment_status": {
                 "active_environment": active_env,

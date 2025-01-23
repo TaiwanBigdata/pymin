@@ -125,7 +125,7 @@ def switch_virtual_env(venv_path: str) -> None:
     """
     python_path = os.path.join(venv_path, "bin", "python")
     if not os.path.exists(python_path):
-        raise ValueError(f"Python executable not found: {python_path}")
+        raise ValueError(f"Python path not found: {python_path}")
 
     site_packages = get_venv_site_packages(python_path)
     if not os.path.exists(site_packages):
