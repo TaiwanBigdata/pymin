@@ -21,22 +21,22 @@ console = Console(force_terminal=True, color_system="auto")
 
 def print_error(message: str):
     """Display error message"""
-    console.print(f"{SymbolType.ERROR} {message}", style=StyleType.ERROR())
+    console.print(f"{SymbolType.ERROR} {message}", style=StyleType.ERROR)
 
 
 def print_warning(message: str):
     """Display warning message"""
-    console.print(f"{SymbolType.WARNING} {message}", style=StyleType.WARNING())
+    console.print(f"{SymbolType.WARNING} {message}", style=StyleType.WARNING)
 
 
 def print_success(message: str):
     """Display success message"""
-    console.print(f"{SymbolType.SUCCESS} {message}", style=StyleType.SUCCESS())
+    console.print(f"{SymbolType.SUCCESS} {message}", style=StyleType.SUCCESS)
 
 
 def print_info(message: str):
     """Display info message"""
-    console.print(f"{SymbolType.INFO} {message}", style=StyleType.INFO())
+    console.print(f"{SymbolType.INFO} {message}", style=StyleType.INFO)
 
 
 def create_package_table(
@@ -56,9 +56,9 @@ def create_package_table(
     )
 
     # Add columns with specific styles and alignment
-    table.add_column("Package", style=StyleType.PACKAGE_NAME())
-    table.add_column("Required", style=StyleType.PACKAGE_VERSION())
-    table.add_column("Installed", style=StyleType.PACKAGE_VERSION())
+    table.add_column("Package", style=StyleType.PACKAGE_NAME)
+    table.add_column("Required", style=StyleType.PACKAGE_VERSION)
+    table.add_column("Installed", style=StyleType.PACKAGE_VERSION)
     table.add_column("Status", justify="center")
 
     # Add rows with consistent styling
@@ -73,11 +73,11 @@ def create_package_table(
         name = package_data.get("name", "")
         if package_data.get("redundant"):
             name_text = Text()
-            name_text.append(name, style=StyleType.PACKAGE_NAME())
-            name_text.append(" ", style=StyleType.WARNING())
-            name_text.append("(redundant)", style=StyleType.WARNING())
+            name_text.append(name, style=StyleType.PACKAGE_NAME)
+            name_text.append(" ", style=StyleType.WARNING)
+            name_text.append("(redundant)", style=StyleType.WARNING)
         else:
-            name_text = Text(name, style=StyleType.PACKAGE_NAME())
+            name_text = Text(name, style=StyleType.PACKAGE_NAME)
         styled_row.append(name_text)
 
         # Handle required version
@@ -106,14 +106,14 @@ def create_package_table(
         # Handle status
         status_symbol = get_status_symbol(status)
         if status in ["missing", "version_mismatch"]:
-            status_text = Text(status_symbol, style=StyleType.ERROR())
+            status_text = Text(status_symbol, style=StyleType.ERROR)
         else:
             status_text = Text(status_symbol, style=status_style)
         styled_row.append(status_text)
 
         # Add the row to the table with appropriate styling
         if package_data.get("is_dependency"):
-            table.add_row(*styled_row, style=StyleType.PACKAGE_DEPENDENCY())
+            table.add_row(*styled_row, style=StyleType.PACKAGE_DEPENDENCY)
         else:
             table.add_row(*styled_row)
 
@@ -132,9 +132,9 @@ def create_dependency_tree(packages: Dict[str, Dict]) -> Table:
     )
 
     # Add columns with specific styles and alignment
-    table.add_column("Package Tree", style=StyleType.PACKAGE_NAME())
-    table.add_column("Required", style=StyleType.PACKAGE_VERSION())
-    table.add_column("Installed", style=StyleType.PACKAGE_VERSION())
+    table.add_column("Package Tree", style=StyleType.PACKAGE_NAME)
+    table.add_column("Required", style=StyleType.PACKAGE_VERSION)
+    table.add_column("Installed", style=StyleType.PACKAGE_VERSION)
     table.add_column("Status", justify="center")
 
     def format_tree_line(
@@ -433,9 +433,9 @@ def create_package_summary(
 
 def create_fix_tip() -> None:
     """Display tip message for package issues"""
-    tip = Text(style=StyleType.DIM())
+    tip = Text(style=StyleType.DIM)
     tip.append("Tip: Run ")
-    tip.append("pm fix", style=StyleType.COMMAND())
+    tip.append("pm fix", style=StyleType.COMMAND)
     tip.append(" to resolve package inconsistencies")
     console.print(tip)
 

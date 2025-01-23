@@ -83,7 +83,13 @@ class StyleType(Enum):
     URL = Style(color="blue", underline=True)
     COMMAND = Style(color="cyan")
 
-    def __call__(self):
+    def __str__(self):
+        return str(self.value)
+
+    def __format__(self, format_spec):
+        return str(self.value)
+
+    def __get__(self, instance, owner):
         return self.value
 
 
