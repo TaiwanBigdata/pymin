@@ -83,7 +83,7 @@ class StyleType(Enum):
         return self.value
 
 
-class SymbolType(Enum):
+class SymbolType(str, Enum):
     SUCCESS = "✓"
     ERROR = "✗"
     WARNING = "⚠"
@@ -119,11 +119,11 @@ def get_status_symbol(status: str) -> str:
     try:
         # Special case for missing packages
         if status.lower() == "missing":
-            return SymbolType.NOT_INSTALLED.value
-        return SymbolType[status.upper()].value
+            return SymbolType.NOT_INSTALLED
+        return SymbolType[status.upper()]
     except KeyError:
         return (
-            SymbolType.NOT_INSTALLED.value
+            SymbolType.NOT_INSTALLED
         )  # Default to NOT_INSTALLED symbol for unknown status
 
 

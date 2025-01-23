@@ -21,28 +21,22 @@ console = Console(force_terminal=True, color_system="auto")
 
 def print_error(message: str):
     """Display error message"""
-    console.print(
-        f"{SymbolType.ERROR.value} {message}", style=StyleType.ERROR()
-    )
+    console.print(f"{SymbolType.ERROR} {message}", style=StyleType.ERROR())
 
 
 def print_warning(message: str):
     """Display warning message"""
-    console.print(
-        f"{SymbolType.WARNING.value} {message}", style=StyleType.WARNING()
-    )
+    console.print(f"{SymbolType.WARNING} {message}", style=StyleType.WARNING())
 
 
 def print_success(message: str):
     """Display success message"""
-    console.print(
-        f"{SymbolType.SUCCESS.value} {message}", style=StyleType.SUCCESS()
-    )
+    console.print(f"{SymbolType.SUCCESS} {message}", style=StyleType.SUCCESS())
 
 
 def print_info(message: str):
     """Display info message"""
-    console.print(f"{SymbolType.INFO.value} {message}", style=StyleType.INFO())
+    console.print(f"{SymbolType.INFO} {message}", style=StyleType.INFO())
 
 
 def create_package_table(

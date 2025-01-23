@@ -55,9 +55,9 @@ def create_env_info_panel(env_info: Dict[str, Any]) -> Panel:
     env_status_info.append("\n[dim]Current Directory:[/dim]")
     if current_env["has_venv"]:
         status = (
-            f"[green bold]{SymbolType.SUCCESS.value} Active[/green bold]"
+            f"[green bold]{SymbolType.SUCCESS} Active[/green bold]"
             if current_env["is_active"]
-            else f"[yellow bold]{SymbolType.WARNING.value} Inactive[/yellow bold]"
+            else f"[yellow bold]{SymbolType.WARNING} Inactive[/yellow bold]"
         )
         # Extract project name and environment name from the full name
         project_name, env_name = current_env["name"].split("(")
