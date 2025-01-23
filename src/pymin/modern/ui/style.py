@@ -5,15 +5,19 @@ from rich.theme import Theme
 from enum import Enum
 from dataclasses import dataclass
 
-# Color constants
-COLORS = {
-    "success": "green",
-    "error": "red",
-    "warning": "yellow",
-    "info": "blue",
-    "highlight": "cyan",
-    "dim": "bright_black",
-}
+
+class Colors(str, Enum):
+    """Color definitions that can be used directly in f-strings"""
+
+    SUCCESS = "green"
+    ERROR = "red"
+    WARNING = "yellow"
+    INFO = "blue"
+    HIGHLIGHT = "cyan"
+    DIM = "bright_black"
+
+    def __format__(self, format_spec):
+        return str(self.value)
 
 
 @dataclass
@@ -100,16 +104,19 @@ class SymbolType(str, Enum):
     TREE_LAST = "└──"
     TREE_VERTICAL = "│"
 
+    def __format__(self, format_spec):
+        return str(self.value)
+
 
 # Theme definition
 THEME = Theme(
     {
-        "success": f"bold {COLORS['success']}",
-        "error": f"bold {COLORS['error']}",
-        "warning": COLORS["warning"],
-        "info": COLORS["info"],
-        "highlight": COLORS["highlight"],
-        "dim": COLORS["dim"],
+        "success": f"bold {Colors.SUCCESS}",
+        "error": f"bold {Colors.ERROR}",
+        "warning": Colors.WARNING,
+        "info": Colors.INFO,
+        "highlight": Colors.HIGHLIGHT,
+        "dim": Colors.DIM,
     }
 )
 
