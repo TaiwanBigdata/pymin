@@ -1,31 +1,39 @@
-import json
-import os
-import sys
+from abc import ABC, abstractmethod
+from typing import Dict, Any, List, TypedDict
 import platform
 import subprocess
+import sys
+import os
+import json
+import re
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple, List
 
 
-class SystemAnalyzer:
-    """
-    A comprehensive system environment detector that provides information about
-    Python installations and platform details
-    """
+class Platform(TypedDict):
+    system: str  # System name (Darwin/Windows/Linux)
+    os: str  # OS name (macOS/Windows 11/Ubuntu)
+    os_version: str  # OS version
+    arch: str  # Current architecture
+    native_arch: str  # Native architecture
+    model: str  # Hardware model
+    processor: str  # CPU info
+    release: str  # Kernel release version
+    build: str  # Build number
+    is_emulated: bool
 
-    def __init__(self):
-        """Initialize detector with environment variables and platform checks"""
-        self.env_vars = os.environ.copy()
-        self.is_windows = sys.platform.startswith("win")
-        self.current_venv = os.path.dirname(os.path.dirname(sys.executable))
 
-    def _run_shell_command(self, command: str) -> str:
-        """Execute shell command and return output"""
-        shell = os.environ.get("SHELL", "/bin/zsh")
-        cmd = f"{shell} -i -c '{command}'"
+class SystemInfo(TypedDict):
+    platform: Platform
+    python: Dict[str, str]
+    pip: Dict[str, str]
+
+
+class CommandRunner:
+    @staticmethod
+    def run_shell(command: str, shell: str = "/bin/zsh") -> str:
         try:
             result = subprocess.run(
-                cmd,
+                f"{shell} -i -c '{command}'",
                 shell=True,
                 capture_output=True,
                 text=True,
@@ -35,10 +43,26 @@ class SystemAnalyzer:
         except subprocess.SubprocessError:
             return ""
 
+    @staticmethod
+    def run_command(command: List[str], timeout: float = 1.0) -> str:
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=True,
+            )
+            return result.stdout.strip()
+        except (subprocess.SubprocessError, OSError):
+            return ""
+
+
+class PythonInfo:
+    def __init__(self):
+        self.current_venv = os.path.dirname(os.path.dirname(sys.executable))
+
     def _is_venv_path(self, path: str) -> bool:
-        """
-        Check if path is any virtual environment path (venv/poetry)
-        """
         normalized_path = os.path.normpath(path)
         venv_patterns = [
             "/venv/",
@@ -51,9 +75,8 @@ class SystemAnalyzer:
         ]
         return any(pattern in normalized_path for pattern in venv_patterns)
 
-    def get_python_info(self) -> Dict[str, Any]:
-        """Get Python installations excluding current virtual environment"""
-        paths_output = self._run_shell_command("which -a python3")
+    def get_info(self) -> Dict[str, Dict[str, str]]:
+        paths_output = CommandRunner.run_shell("which -a python3")
         python_paths = [
             p
             for p in paths_output.splitlines()
@@ -71,25 +94,21 @@ class SystemAnalyzer:
             }
 
         python_path = python_paths[0]
-        python_version = self._run_shell_command(
+        python_version = CommandRunner.run_shell(
             f"{python_path} --version"
         ).split()[1]
-
-        # Get Python base prefix
-        base_prefix_cmd = (
+        base_prefix = CommandRunner.run_shell(
             f'{python_path} -c "import sys; print(sys.base_prefix)"'
         )
-        base_prefix = self._run_shell_command(base_prefix_cmd)
 
-        # Get pip info
         pip_paths = [
             p
-            for p in self._run_shell_command("which -a pip3").splitlines()
+            for p in CommandRunner.run_shell("which -a pip3").splitlines()
             if p.strip() and not self._is_venv_path(p)
         ]
         pip_path = pip_paths[0] if pip_paths else "not found"
         pip_version = (
-            self._run_shell_command(f"{pip_path} --version").split()[1]
+            CommandRunner.run_shell(f"{pip_path} --version").split()[1]
             if pip_paths
             else "unknown"
         )
@@ -103,82 +122,135 @@ class SystemAnalyzer:
             "pip": {"version": pip_version, "path": pip_path},
         }
 
-    def _get_darwin_platform_info(self) -> Dict[str, Any]:
-        """
-        Get detailed Darwin/macOS platform information
 
-        Returns:
-            Dictionary containing macOS specific details
-        """
+class PlatformDetector(ABC):
+    @abstractmethod
+    def get_info(self) -> Platform:
+        pass
 
-        def _run_command(command: list, timeout: int = 3) -> str:
-            """Helper function to run command with error handling"""
-            try:
-                result = subprocess.run(
-                    command, capture_output=True, text=True, timeout=timeout
-                )
-                return result.stdout.strip() if result.returncode == 0 else ""
-            except subprocess.SubprocessError:
-                return ""
 
-        # Get system information
-        hw_model = _run_command(["sysctl", "-n", "hw.model"])
-        arch = _run_command(["uname", "-m"])
-        os_version = _run_command(["sw_vers", "-productVersion"])
-        build_version = _run_command(["sw_vers", "-buildVersion"])
+class DarwinDetector(PlatformDetector):
+    class Command:
+        ARCH = ["sysctl", "-n", "hw.optional.arm64"]
+        CURRENT_ARCH = ["uname", "-m"]
+        ROSETTA = ["sysctl", "-n", "sysctl.proc_translated"]
+        MODEL = ["sysctl", "-n", "hw.model"]
+        OS_VERSION = ["sw_vers", "-productVersion"]
+        BUILD = ["sw_vers", "-buildVersion"]
+        CPU = ["sysctl", "-n", "machdep.cpu.brand_string"]
+        DARWIN_VERSION = ["uname", "-r"]
 
-        # Get processor information
-        cpu_brand = _run_command(["sysctl", "-n", "machdep.cpu.brand_string"])
-        if not cpu_brand and arch == "arm64":
-            cpu_brand = "Apple Silicon"
+    def get_info(self) -> Platform:
+        is_arm64 = CommandRunner.run_command(self.Command.ARCH) == "1"
+        current_arch = CommandRunner.run_command(self.Command.CURRENT_ARCH)
+        is_rosetta = (
+            CommandRunner.run_command(self.Command.ROSETTA) == "1"
+            if current_arch == "x86_64"
+            else False
+        )
+        darwin_version = CommandRunner.run_command(self.Command.DARWIN_VERSION)
 
-        # Check Rosetta 2
-        is_rosetta = False
-        if arch == "x86_64":
-            rosetta_check = _run_command(
-                ["sysctl", "-n", "sysctl.proc_translated"]
-            )
-            is_rosetta = rosetta_check == "1"
-            if not is_rosetta and cpu_brand:
-                is_rosetta = "Apple" in cpu_brand
+        return Platform(
+            system="Darwin",
+            os="macOS",
+            os_version=CommandRunner.run_command(self.Command.OS_VERSION),
+            arch=current_arch,
+            native_arch="arm64" if is_arm64 else current_arch,
+            model=CommandRunner.run_command(self.Command.MODEL),
+            processor=CommandRunner.run_command(self.Command.CPU),
+            release=darwin_version,
+            build=CommandRunner.run_command(self.Command.BUILD),
+            is_emulated=is_rosetta,
+        )
 
-        return {
-            "system": "Darwin",
-            "os": "macOS",
-            "os_version": os_version or platform.mac_ver()[0],
-            "release": platform.release(),
-            "machine": arch or platform.machine(),
-            "model": hw_model or "Unknown",
-            "processor": cpu_brand
-            or platform.processor()
-            or platform.machine(),
-            "build_version": build_version,
-            "is_rosetta": is_rosetta,
-        }
 
-    def get_system_info(self) -> Dict[str, Any]:
-        """
-        Get comprehensive information about system environment
+class WindowsDetector(PlatformDetector):
+    def get_info(self) -> Platform:
+        win_ver = platform.win32_ver()
+        os_version = platform.version()
+        return Platform(
+            system="Windows",
+            os=f"Windows {win_ver[0]}",
+            os_version=os_version,
+            arch=platform.machine(),
+            native_arch=platform.machine(),
+            model=platform.machine(),
+            processor=platform.processor(),
+            release=os_version,
+            build=os_version,
+            is_emulated=False,
+        )
 
-        Returns:
-            Dictionary containing Python, pip and platform information
-        """
-        # Get Python and pip information
-        python_info = self.get_python_info()
 
-        # Get platform specific information
-        if sys.platform == "darwin":
-            platform_info = self._get_darwin_platform_info()
+class LinuxDetector(PlatformDetector):
+    def get_info(self) -> Platform:
+        kernel_release = platform.release()
+        os_version = self._get_os_version()
+        return Platform(
+            system="Linux",
+            os=self._get_distro(),
+            os_version=os_version,
+            arch=platform.machine(),
+            native_arch=platform.machine(),
+            model=platform.machine(),
+            processor=self._get_cpu_info(),
+            release=kernel_release,
+            build=os_version,
+            is_emulated=False,
+        )
+
+    def _get_distro(self) -> str:
+        try:
+            with open("/etc/os-release") as f:
+                for line in f:
+                    if line.startswith("PRETTY_NAME="):
+                        return line.split("=")[1].strip().strip('"')
+        except (OSError, IndexError):
+            return "Linux"
+        return "Linux"
+
+    def _get_os_version(self) -> str:
+        try:
+            with open("/etc/os-release") as f:
+                version_id = ""
+                build_id = ""
+                for line in f:
+                    if line.startswith("VERSION_ID="):
+                        version_id = line.split("=")[1].strip().strip('"')
+                    elif line.startswith("BUILD_ID="):
+                        build_id = line.split("=")[1].strip().strip('"')
+                return build_id if build_id else version_id
+        except (OSError, IndexError):
+            return platform.version()
+        return platform.version()
+
+    def _get_cpu_info(self) -> str:
+        try:
+            with open("/proc/cpuinfo") as f:
+                for line in f:
+                    if line.startswith("model name"):
+                        return line.split(":")[1].strip()
+        except (OSError, IndexError):
+            return platform.processor()
+        return platform.processor()
+
+
+class SystemAnalyzer:
+    def __init__(self):
+        self.python_info = PythonInfo()
+        if sys.platform.startswith("darwin"):
+            self.platform_detector = DarwinDetector()
+        elif sys.platform.startswith("win"):
+            self.platform_detector = WindowsDetector()
         else:
-            platform_info = {
-                "system": platform.system(),
-                "os": platform.system(),
-                "os_version": platform.version(),
-                "release": platform.release(),
-                "machine": platform.machine(),
-                "processor": platform.processor() or platform.machine(),
-                "build_version": "",
-                "is_rosetta": False,
-            }
+            self.platform_detector = LinuxDetector()
 
-        return {**python_info, "platform": platform_info}
+    def get_system_info(self) -> SystemInfo:
+        platform_info = self.platform_detector.get_info()
+        python_data = self.python_info.get_info()
+
+        return SystemInfo(
+            platform=platform_info,
+            python=python_data["python"],
+            pip=python_data["pip"],
+        )

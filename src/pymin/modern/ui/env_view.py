@@ -6,7 +6,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
 from typing import Dict, Any, List
-from .style import StyleType as style
+from .style import StyleType as style, SymbolType
 import pathlib
 
 console = Console()
@@ -29,8 +29,8 @@ def create_env_info_panel(env_info: Dict[str, Any]) -> Panel:
     system_info_display = [
         f"[dim]Python:[/dim] [cyan]{system_python['version']}[/cyan] [dim]({system_python['executable']})[/dim]",
         f"[dim]Pip:[/dim] [cyan]{system_pip['version']}[/cyan] [dim]({system_pip['path']})[/dim]",
-        f"[dim]OS:[/dim] [cyan]{platform_info['os']} {platform_info['os_version']}[/cyan] ({platform_info['build_version']})",
-        f"[dim]Architecture:[/dim] [cyan]{platform_info['processor']} ({platform_info['machine']})[/cyan]",
+        f"[dim]OS:[/dim] [cyan]{platform_info['os']} {platform_info['os_version']}[/cyan] ({platform_info['build']})",
+        f"[dim]Architecture:[/dim] [cyan]{platform_info['processor']}[/cyan] ({platform_info['native_arch']})",
         f"[dim]Kernel:[/dim] [cyan]{platform_info['system']} {platform_info['release']}[/cyan]",
     ]
 
@@ -55,9 +55,9 @@ def create_env_info_panel(env_info: Dict[str, Any]) -> Panel:
     env_status_info.append("\n[dim]Current Directory:[/dim]")
     if current_env["has_venv"]:
         status = (
-            "[green bold]✓ Active[/green bold]"
+            f"[green bold]{SymbolType.SUCCESS.value} Active[/green bold]"
             if current_env["is_active"]
-            else "[yellow]Inactive[/yellow]"
+            else f"[yellow bold]{SymbolType.WARNING.value} Inactive[/yellow bold]"
         )
         # Extract project name and environment name from the full name
         project_name, env_name = current_env["name"].split("(")
