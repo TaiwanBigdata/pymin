@@ -63,7 +63,7 @@ class SystemAnalyzer:
         if not python_paths:
             return {
                 "python": {
-                    "path": "not found",
+                    "executable": "not found",
                     "base_prefix": "unknown",
                     "version": "unknown",
                 },
@@ -96,7 +96,7 @@ class SystemAnalyzer:
 
         return {
             "python": {
-                "path": python_path,
+                "executable": python_path,
                 "base_prefix": base_prefix,
                 "version": python_version,
             },

@@ -27,11 +27,11 @@ def create_env_info_panel(env_info: Dict[str, Any]) -> Panel:
     platform_info = system_info["platform"]
     # Format system information section
     system_info_display = [
-        f"[dim]Python:[/dim] [cyan]{system_python['version']}[/cyan] {system_python["executable"]}",
-        f"[dim]Pip:[/dim] [cyan]{system_pip['version']}[/cyan] {system_pip["path"]}",
-        f"[dim]Platform:[/dim] {platform_info['os']} {platform_info['os_version']} {platform_info['build_version']} ({platform_info['processor']}, {platform_info['machine']}) {platform_info['system']} {platform_info['release']}",
-        f"[dim]Working Directory:[/dim] [cyan]{env_info['project']['path']}[/cyan]",
-        f"[dim]Pip:[/dim] [cyan]{system_pip['version']}[/cyan] at [cyan]{system_pip['path']}[/cyan]",
+        f"[dim]Python:[/dim] [cyan]{system_python['version']}[/cyan] [dim]({system_python['executable']})[/dim]",
+        f"[dim]Pip:[/dim] [cyan]{system_pip['version']}[/cyan] [dim]({system_pip['path']})[/dim]",
+        f"[dim]OS:[/dim] [cyan]{platform_info['os']} {platform_info['os_version']}[/cyan] ({platform_info['build_version']})",
+        f"[dim]Architecture:[/dim] [cyan]{platform_info['processor']} ({platform_info['machine']})[/cyan]",
+        f"[dim]Kernel:[/dim] [cyan]{platform_info['system']} {platform_info['release']}[/cyan]",
     ]
 
     # Initialize environment status information list
