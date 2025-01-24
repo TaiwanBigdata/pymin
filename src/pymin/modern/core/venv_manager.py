@@ -2,9 +2,10 @@
 
 import os
 import sys
+import venv
 import subprocess
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 from .venv_analyzer import VenvAnalyzer
 from ..ui.style import format_env_switch, StyleType
 from ..ui.console import print_success, print_warning
@@ -215,3 +216,281 @@ class VenvManager:
             return self.analyzer._find_venv_path()
         except Exception:
             return None
+
+    def create_environment(
+        self, venv_path: Path, rebuild: bool = False
+    ) -> Dict[str, Any]:
+        """Create a new virtual environment
+
+        Args:
+            venv_path: Path where to create the environment
+            rebuild: Whether to rebuild if environment exists
+
+        Returns:
+            Dictionary containing environment information
+        """
+        # Handle rebuilding
+        if venv_path.exists():
+            if rebuild:
+                import shutil
+
+                shutil.rmtree(venv_path)
+            else:
+                raise ValueError(f"Environment already exists at {venv_path}")
+
+        # Create the environment
+        venv.create(venv_path, with_pip=True)
+
+        # Get environment information
+        env_info = self.analyzer.get_venv_info()
+        if not env_info["has_venv"]:
+            raise RuntimeError("Failed to create virtual environment")
+
+        return env_info
+
+    def install_requirements(self, venv_path: Path) -> None:
+        """Install requirements from requirements.txt
+
+        Args:
+            venv_path: Path to the virtual environment
+        """
+        requirements_file = Path("requirements.txt")
+        if not requirements_file.exists():
+            return
+
+        # Get pip path
+        if sys.platform == "win32":
+            pip_path = venv_path / "Scripts" / "pip"
+        else:
+            pip_path = venv_path / "bin" / "pip"
+
+        if not pip_path.exists():
+            raise FileNotFoundError(f"Pip not found at {pip_path}")
+
+        # Install requirements
+        result = subprocess.run(
+            [str(pip_path), "install", "-r", str(requirements_file)],
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Failed to install requirements: {result.stderr}"
+            )
+
+    def add_packages(
+        self,
+        packages: List[str],
+        *,
+        dev: bool = False,
+        editable: bool = False,
+        no_deps: bool = False,
+    ) -> Dict[str, Dict]:
+        """Add packages to requirements.txt and install them
+
+        Args:
+            packages: List of package names to add
+            dev: Whether to add as development dependencies
+            editable: Whether to install in editable mode
+            no_deps: Whether to skip installing dependencies
+
+        Returns:
+            Dictionary with package installation results
+        """
+        if not self.from_env:
+            raise RuntimeError("No virtual environment is active")
+
+        # Get pip path
+        if sys.platform == "win32":
+            pip_path = self.from_env / "Scripts" / "pip"
+        else:
+            pip_path = self.from_env / "bin" / "pip"
+
+        if not pip_path.exists():
+            raise FileNotFoundError(f"Pip not found at {pip_path}")
+
+        results = {}
+        for package in packages:
+            try:
+                # Build pip command
+                cmd = [str(pip_path), "install"]
+                if editable:
+                    cmd.append("-e")
+                if no_deps:
+                    cmd.append("--no-deps")
+                cmd.append(package)
+
+                # Install package
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                )
+
+                if result.returncode != 0:
+                    results[package] = {
+                        "status": "error",
+                        "message": result.stderr,
+                    }
+                    continue
+
+                # Get installed version
+                result = subprocess.run(
+                    [str(pip_path), "show", package.split("[")[0]],
+                    capture_output=True,
+                    text=True,
+                )
+
+                if result.returncode == 0:
+                    version = next(
+                        (
+                            line.split(": ")[1]
+                            for line in result.stdout.splitlines()
+                            if line.startswith("Version: ")
+                        ),
+                        "unknown",
+                    )
+                    results[package] = {
+                        "status": "installed",
+                        "version": version,
+                    }
+                else:
+                    results[package] = {
+                        "status": "error",
+                        "message": "Failed to get package version",
+                    }
+
+                # Update requirements.txt
+                self._update_requirements(package, version, dev=dev)
+
+            except Exception as e:
+                results[package] = {
+                    "status": "error",
+                    "message": str(e),
+                }
+
+        return results
+
+    def remove_packages(self, packages: List[str]) -> Dict[str, Dict]:
+        """Remove packages from requirements.txt and uninstall them
+
+        Args:
+            packages: List of package names to remove
+
+        Returns:
+            Dictionary with package removal results
+        """
+        if not self.from_env:
+            raise RuntimeError("No virtual environment is active")
+
+        # Get pip path
+        if sys.platform == "win32":
+            pip_path = self.from_env / "Scripts" / "pip"
+        else:
+            pip_path = self.from_env / "bin" / "pip"
+
+        if not pip_path.exists():
+            raise FileNotFoundError(f"Pip not found at {pip_path}")
+
+        results = {}
+        for package in packages:
+            try:
+                # Check if package is installed
+                result = subprocess.run(
+                    [str(pip_path), "show", package],
+                    capture_output=True,
+                    text=True,
+                )
+
+                if result.returncode != 0:
+                    results[package] = {
+                        "status": "not_found",
+                    }
+                    continue
+
+                # Uninstall package
+                result = subprocess.run(
+                    [str(pip_path), "uninstall", "-y", package],
+                    capture_output=True,
+                    text=True,
+                )
+
+                if result.returncode != 0:
+                    results[package] = {
+                        "status": "error",
+                        "message": result.stderr,
+                    }
+                    continue
+
+                # Remove from requirements.txt
+                self._remove_from_requirements(package)
+
+                results[package] = {
+                    "status": "removed",
+                }
+
+            except Exception as e:
+                results[package] = {
+                    "status": "error",
+                    "message": str(e),
+                }
+
+        return results
+
+    def _update_requirements(
+        self, package: str, version: str, *, dev: bool = False
+    ) -> None:
+        """Update requirements.txt with package information"""
+        requirements_file = (
+            Path("requirements-dev.txt") if dev else Path("requirements.txt")
+        )
+
+        # Create file if it doesn't exist
+        if not requirements_file.exists():
+            requirements_file.touch()
+
+        # Read existing requirements
+        requirements = requirements_file.read_text().splitlines()
+
+        # Remove existing package entry if present
+        package_name = package.split("[")[0]
+        requirements = [
+            req
+            for req in requirements
+            if not req.strip().startswith(f"{package_name}==")
+        ]
+
+        # Add new package entry
+        requirements.append(f"{package}=={version}")
+
+        # Write updated requirements
+        requirements_file.write_text("\n".join(sorted(requirements)) + "\n")
+
+    def _remove_from_requirements(self, package: str) -> None:
+        """Remove package from requirements.txt"""
+        for requirements_file in [
+            Path("requirements.txt"),
+            Path("requirements-dev.txt"),
+        ]:
+            if not requirements_file.exists():
+                continue
+
+            # Read existing requirements
+            requirements = requirements_file.read_text().splitlines()
+
+            # Remove package entry
+            package_name = package.split("[")[0]
+            requirements = [
+                req
+                for req in requirements
+                if not req.strip().startswith(f"{package_name}==")
+            ]
+
+            # Write updated requirements if changed
+            if requirements:
+                requirements_file.write_text(
+                    "\n".join(sorted(requirements)) + "\n"
+                )
+            else:
+                requirements_file.unlink()

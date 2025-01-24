@@ -10,6 +10,8 @@ import os
 import sys
 from .modern.core.package_analyzer import PackageAnalyzer
 from .modern.commands.env_command import info, activate, deactivate
+from .modern.commands.venv_command import venv
+from .modern.commands.package_command import add, remove, rm
 from .modern.ui.console import (
     create_package_table,
     create_dependency_tree,
@@ -30,91 +32,36 @@ console = Console(force_terminal=True, color_system="auto")
 pkg_analyzer = PackageAnalyzer()
 
 
-def format_help_message(ctx, formatter):
+def format_help_message(self, ctx, formatter):
     """Format help message with modern styling"""
-    categories = {
-        "Environment": ["info", "venv", "activate", "deactivate"],
-        "Package": ["list", "add", "remove", "update", "fix"],
-        "PyPI": ["check", "search", "release"],
-    }
-
-    content = Text()
-    for category, cmd_names in categories.items():
-        content.append("\n")
-        content.append(category, style="bold blue")
-        content.append(":\n")
-
-        for cmd_name in cmd_names:
-            if cmd_name not in ctx.command.commands:
-                continue
-
-            cmd = ctx.command.commands[cmd_name]
-            if cmd.hidden:
-                continue
-
-            content.append("  ")
-            content.append(cmd_name, style="dim")
-            padding = 12 - len(cmd_name)
-            content.append(" " * padding)
-
-            help_text = cmd.help or ""
-            content.append(Text(help_text, style="cyan"))
-
-            # Add parameter info or alias info
-            extra_info = []
-            if cmd_name == "list":
-                extra_info.append("(-a: all, -t: tree)")
-            elif cmd_name == "release":
-                extra_info.append("(--test: Test PyPI)")
-            elif cmd_name == "search":
-                extra_info.append("(-t: threshold)")
-            elif cmd_name in [
-                "remove",
-                "update",
-                "venv",
-                "activate",
-                "deactivate",
-            ]:
-                aliases = {
-                    "remove": "rm",
-                    "update": "up",
-                    "venv": "env",
-                    "activate": "on",
-                    "deactivate": "off",
-                }
-                extra_info.append(f"(alias: {aliases[cmd_name]})")
-
-            if extra_info:
-                content.append(" ")
-                content.append(Text(" ".join(extra_info), style="green"))
-
-            content.append("\n")
-
-    # Create title
-    title_text = Text()
-    title_text.append("PyMin Modern", style="bold cyan")
-    title_text.append(" - ", style="dim")
-    title_text.append("Modern PyPI Package Management Tool", style="cyan")
-
-    # Add global options
-    content.append("\n")
-    content.append("Global Options", style="bold blue")
-    content.append(":\n")
-    content.append("  --version", style="dim")
-    padding = 12 - len("--version")
-    content.append(" " * padding)
-    content.append("Show version number", style="cyan")
-    content.append(" ")
-    content.append("(alias: -V, -v)", style="green")
-    content.append("\n")
-
     console.print(
-        Panel.fit(
-            content,
-            title=title_text,
-            border_style="blue",
-            padding=(1, 2),
-            title_align="left",
+        Panel(
+            "\n".join(
+                [
+                    "",
+                    "",
+                    "[bold blue]Environment Management:[/bold blue]",
+                    "  info        Show environment information",
+                    "  venv        Create and activate a virtual environment (alias: env)",
+                    "  activate    Activate the virtual environment (defaults to current directory's env) (alias: on)",
+                    "  deactivate  Deactivate the current virtual environment (alias: off)",
+                    "",
+                    "[bold blue]Package Management:[/bold blue]",
+                    "  list        List installed packages and their dependencies (-a: all, -t: tree)",
+                    "  add         Add packages to requirements.txt and install them",
+                    "  remove      Remove packages from requirements.txt and uninstall them (alias: rm)",
+                    "  update      Update all packages to their latest versions (alias: up)",
+                    "  fix         Fix package inconsistencies",
+                    "",
+                    "[bold blue]Global Options:[/bold blue]",
+                    "  --version   Show version number (alias: -V, -v)",
+                    "",
+                    "",
+                ]
+            ),
+            title="PyMin Modern - Modern PyPI Package Management Tool",
+            expand=True,
+            padding=(0, 2),
         )
     )
 
@@ -144,14 +91,21 @@ def cli(version: bool = False):
 
 cli.format_commands = format_help_message
 
-# Register commands
+# Register environment commands
 cli.add_command(info)
 cli.add_command(activate)
 cli.add_command(deactivate)
+cli.add_command(venv)
+
+# Register package management commands
+cli.add_command(add)
+cli.add_command(remove)
+cli.add_command(rm)
 
 # Register command aliases
 cli.add_command(activate, "on")
 cli.add_command(deactivate, "off")
+cli.add_command(venv, "env")
 
 
 def should_show_fix_tip(packages: Union[List[Dict], Dict[str, Dict]]) -> bool:
