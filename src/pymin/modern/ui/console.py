@@ -4,8 +4,10 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
+from rich.status import Status
 from rich.box import DOUBLE
 from typing import Dict, List, Optional, Union, Literal
+from contextlib import contextmanager
 from ..ui.style import (
     StyleType,
     SymbolType,
@@ -14,29 +16,81 @@ from ..ui.style import (
     DEFAULT_PANEL,
     DEFAULT_TABLE,
     Style,
+    format_status_message,
 )
 
 console = Console(force_terminal=True, color_system="auto")
+_current_status: Optional[Status] = None
+
+
+@contextmanager
+def progress_status(message: str):
+    """Display a progress status message with consistent styling.
+
+    Args:
+        message: The message to display
+
+    Example:
+        with progress_status("Getting environment information..."):
+            # Do some work here
+            result = some_long_running_operation()
+    """
+    with Status(
+        f"[{StyleType.LOADING}]{message}[/{StyleType.LOADING}]",
+        console=console,
+        spinner="dots",
+        spinner_style=f"{StyleType.LOADING}",
+    ) as status:
+        try:
+            yield status
+        finally:
+            pass  # Status will be automatically cleared
+
+
+def start_status(message: str) -> None:
+    """Start displaying a status message"""
+    global _current_status
+    if _current_status is not None:
+        _current_status.stop()
+
+    _current_status = Status(
+        f"[blue]{message}[/blue]",
+        console=console,
+        spinner="dots",
+    )
+    _current_status.start()
+
+
+def stop_status() -> None:
+    """Stop displaying the current status message"""
+    global _current_status
+    if _current_status is not None:
+        _current_status.stop()
+        _current_status = None
 
 
 def print_error(message: str):
     """Display error message"""
-    console.print(f"{SymbolType.ERROR} {message}", style=StyleType.ERROR)
+    stop_status()  # Ensure any status message is cleared
+    console.print(format_status_message(message, "error"))
 
 
 def print_warning(message: str):
     """Display warning message"""
-    console.print(f"{SymbolType.WARNING} {message}", style=StyleType.WARNING)
+    stop_status()  # Ensure any status message is cleared
+    console.print(format_status_message(message, "warning"))
 
 
 def print_success(message: str):
     """Display success message"""
-    console.print(f"{SymbolType.SUCCESS} {message}", style=StyleType.SUCCESS)
+    stop_status()  # Ensure any status message is cleared
+    console.print(format_status_message(message, "success"))
 
 
 def print_info(message: str):
     """Display info message"""
-    console.print(f"{SymbolType.INFO} {message}", style=StyleType.INFO)
+    stop_status()  # Ensure any status message is cleared
+    console.print(format_status_message(message, "info"))
 
 
 def create_package_table(

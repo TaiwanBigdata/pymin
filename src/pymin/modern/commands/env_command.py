@@ -4,21 +4,23 @@ import click
 from ..core.venv_manager import VenvManager
 from ..ui.env_view import display_environment_info
 from rich.console import Console
-from rich.status import Status
 from pathlib import Path
 import os
 import sys
-
-console = Console()
+from ..ui.console import (
+    print_success,
+    print_error,
+    print_info,
+    progress_status,
+    console,
+)
 
 
 @click.command()
 def info():
     """Show environment information"""
     try:
-        with Status(
-            "[cyan]Getting environment information...[/cyan]", console=console
-        ) as status:
+        with progress_status("Getting environment information...") as status:
             manager = VenvManager()
             env_info = manager.get_environment_info()
         display_environment_info(env_info)
@@ -34,12 +36,11 @@ def activate(venv_path: str = None):
         manager = VenvManager()
         if venv_path:
             venv_path = Path(venv_path)
-
-        # Show status message
-        print_info("Activating virtual environment...")
-
-        # Activate the environment (this will replace the current shell)
-        manager.activate_environment(venv_path)
+        shell, shell_name, shell_command = manager._prepare_activation(
+            venv_path
+        )
+        if shell_command:
+            os.execl(shell, shell_name, "-c", shell_command)
     except Exception as e:
         print_error(f"Error: {str(e)}")
 
@@ -49,15 +50,8 @@ def deactivate():
     """Deactivate virtual environment"""
     try:
         manager = VenvManager()
-
-        # Show status message
-        print_info("Deactivating virtual environment...")
-
-        # Deactivate the environment (this will replace the current shell)
-        manager.deactivate_environment()
+        shell, shell_name, shell_command = manager._prepare_deactivation()
+        if shell_command:
+            os.execl(shell, shell_name, "-c", shell_command)
     except Exception as e:
         print_error(f"Error: {str(e)}")
-
-
-# Add missing imports
-from ..ui.console import print_success, print_error, print_info

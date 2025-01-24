@@ -79,7 +79,10 @@ class StyleType(Enum):
     ENV_VERSION = Style(color="cyan")
     ENV_FIELD_NAME = Style(dim=True)
     ENV_SWITCH_ARROW = Style(color="blue", bold=True)
-    ENV_NONE = Style(dim=True)
+    ENV_NONE = Style(color="white", dim=True)
+
+    # Status styles
+    LOADING = Style(color="cyan")  # Added for consistent loading status color
 
     # Other styles
     HIGHLIGHT = Style(color="cyan")
@@ -169,10 +172,50 @@ def format_env_switch(from_env: Optional[Path], to_env: Optional[Path]) -> str:
         except Exception:
             return f"[{StyleType.ENV_NONE}]none[/{StyleType.ENV_NONE}]"
 
+    # Special cases for deactivation and already inactive
+    if from_env is None and to_env is None:
+        return "No virtual environment is currently active"
+
+    # Format environment displays
     from_display = format_env(from_env)
     to_display = format_env(to_env)
 
-    return f"{from_display} [{StyleType.ENV_SWITCH_ARROW}]{SymbolType.ARROW}[/{StyleType.ENV_SWITCH_ARROW}] {to_display}"
+    # Handle different transition cases
+    if from_env is None and to_env is not None:
+        return f"Activating environment: {from_display} [{StyleType.ENV_SWITCH_ARROW}]{SymbolType.ARROW}[/{StyleType.ENV_SWITCH_ARROW}] {to_display}"
+    elif from_env is not None and to_env is None:
+        return f"Deactivating environment: {from_display} [{StyleType.ENV_SWITCH_ARROW}]{SymbolType.ARROW}[/{StyleType.ENV_SWITCH_ARROW}] {to_display}"
+    elif from_env == to_env or (
+        from_env and to_env and from_env.samefile(to_env)
+    ):
+        return f"Environment is already active: {to_display}"
+    else:
+        # Check if we're activating from none
+        try:
+            if (
+                from_env is None
+                or not from_env.exists()
+                or not (from_env / "bin" / "activate").exists()
+            ):
+                return f"Activating environment: {from_display} [{StyleType.ENV_SWITCH_ARROW}]{SymbolType.ARROW}[/{StyleType.ENV_SWITCH_ARROW}] {to_display}"
+        except Exception:
+            return f"Activating environment: {from_display} [{StyleType.ENV_SWITCH_ARROW}]{SymbolType.ARROW}[/{StyleType.ENV_SWITCH_ARROW}] {to_display}"
+
+        return f"Switching environment: {from_display} [{StyleType.ENV_SWITCH_ARROW}]{SymbolType.ARROW}[/{StyleType.ENV_SWITCH_ARROW}] {to_display}"
+
+
+def format_status_message(message: str, status_type: str = "info") -> str:
+    """Format status message with consistent style
+
+    Args:
+        message: The status message to format
+        status_type: The type of status (info, success, warning, error)
+    """
+    status_type = status_type.lower()
+    symbol = SymbolType[status_type.upper()]
+    style = StyleType[status_type.upper()]
+
+    return f"[{style}]{symbol} {message}[/{style}]"
 
 
 # Default configurations
