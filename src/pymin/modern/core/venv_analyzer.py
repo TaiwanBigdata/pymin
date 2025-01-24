@@ -308,7 +308,6 @@ class VenvAnalyzer:
             if active_env["path"] and current_env["path"]
             else False
         )
-
         return {
             "project": {
                 "name": self.project_path.name,

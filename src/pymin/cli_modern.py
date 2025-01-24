@@ -9,7 +9,7 @@ from pathlib import Path
 import os
 import sys
 from .modern.core.package_analyzer import PackageAnalyzer
-from .modern.commands.env_command import info
+from .modern.commands.env_command import info, activate, deactivate
 from .modern.ui.console import (
     create_package_table,
     create_dependency_tree,
@@ -146,6 +146,12 @@ cli.format_commands = format_help_message
 
 # Register commands
 cli.add_command(info)
+cli.add_command(activate)
+cli.add_command(deactivate)
+
+# Register command aliases
+cli.add_command(activate, "on")
+cli.add_command(deactivate, "off")
 
 
 def should_show_fix_tip(packages: Union[List[Dict], Dict[str, Dict]]) -> bool:

@@ -4,6 +4,8 @@ from rich.style import Style
 from rich.theme import Theme
 from enum import Enum
 from dataclasses import dataclass
+from typing import Optional
+from pathlib import Path
 
 
 class Colors(str, Enum):
@@ -73,9 +75,11 @@ class StyleType(Enum):
     ENV_NAME = Style(color="green")
     ENV_PATH = Style(color="bright_black")
     ENV_PROJECT_NAME = Style(color="cyan")
-    ENV_VENV_NAME = Style(dim=True)
+    ENV_VENV_NAME = Style(color="white", dim=True)
     ENV_VERSION = Style(color="cyan")
     ENV_FIELD_NAME = Style(dim=True)
+    ENV_SWITCH_ARROW = Style(color="blue", bold=True)
+    ENV_NONE = Style(dim=True)
 
     # Other styles
     HIGHLIGHT = Style(color="cyan")
@@ -146,6 +150,29 @@ def get_style(style_name: str) -> Style:
         return StyleType[style_name.upper()].value
     except KeyError:
         return Style()
+
+
+def format_env_switch(from_env: Optional[Path], to_env: Optional[Path]) -> str:
+    """Format environment switch message with consistent style"""
+
+    def format_env(env_path: Optional[Path]) -> str:
+        """Format a single environment path with proper styling"""
+        if env_path is None:
+            return f"[{StyleType.ENV_NONE}]none[/{StyleType.ENV_NONE}]"
+
+        try:
+            project_name = env_path.resolve().parent.name
+            env_name = env_path.name
+            if not project_name or not env_name:
+                return f"[{StyleType.ENV_NONE}]none[/{StyleType.ENV_NONE}]"
+            return f"[{StyleType.ENV_PROJECT_NAME}]{project_name}[/{StyleType.ENV_PROJECT_NAME}][{StyleType.ENV_VENV_NAME}]({env_name})[/{StyleType.ENV_VENV_NAME}]"
+        except Exception:
+            return f"[{StyleType.ENV_NONE}]none[/{StyleType.ENV_NONE}]"
+
+    from_display = format_env(from_env)
+    to_display = format_env(to_env)
+
+    return f"{from_display} [{StyleType.ENV_SWITCH_ARROW}]{SymbolType.ARROW}[/{StyleType.ENV_SWITCH_ARROW}] {to_display}"
 
 
 # Default configurations
