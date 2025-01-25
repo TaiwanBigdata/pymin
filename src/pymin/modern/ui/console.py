@@ -323,6 +323,21 @@ def create_summary_panel(title: str, content: Union[str, Text]) -> Panel:
     )
 
 
+def display_panel(title: str, content: Union[str, Text]) -> None:
+    """Display a panel with consistent styling and spacing.
+
+    This is the main abstraction for displaying panels in the application.
+    It handles the panel creation, outer spacing, and display in a consistent way.
+
+    Args:
+        title: Panel title
+        content: Panel content (can be a string or Text object)
+    """
+    console.print()  # Single line before panel
+    console.print(create_summary_panel(title, content))
+    console.print()  # Single line after panel
+
+
 def create_package_summary(
     packages: Union[List[Dict], Dict[str, Dict]],
     mode: Literal[

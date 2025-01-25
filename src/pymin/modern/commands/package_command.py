@@ -3,7 +3,6 @@
 import click
 from pathlib import Path
 from typing import List, Optional
-from rich.panel import Panel
 from rich.text import Text
 from ..core.venv_manager import VenvManager
 from ..ui.console import (
@@ -11,9 +10,12 @@ from ..ui.console import (
     print_error,
     print_warning,
     progress_status,
-    console,
+    display_panel,
 )
-from ..ui.style import StyleType, SymbolType
+from ..ui.style import (
+    StyleType,
+    SymbolType,
+)
 
 
 @click.command()
@@ -66,7 +68,7 @@ def add(
 
         # Display results
         text = Text()
-        for pkg, info in results.items():
+        for i, (pkg, info) in enumerate(results.items()):
             text.append(f"{pkg}: ", style=StyleType.PACKAGE_NAME)
             if info["status"] == "installed":
                 text.append(
@@ -95,17 +97,11 @@ def add(
                     f"({info['version']})",
                     style=StyleType.PACKAGE_VERSION,
                 )
-            text.append("\n")
+            # Only add newline if not the last item
+            if i < len(results) - 1:
+                text.append("\n")
 
-        console.print(
-            Panel(
-                text,
-                title="Package Installation Results",
-                title_align="left",
-                border_style=StyleType.SUCCESS,
-                padding=(1, 2),
-            )
-        )
+        display_panel("Package Installation Results", text)
 
     except Exception as e:
         print_error(f"Failed to add packages: {str(e)}")
@@ -149,7 +145,7 @@ def remove(packages: List[str], yes: bool = False):
 
         # Display results
         text = Text()
-        for pkg, info in results.items():
+        for i, (pkg, info) in enumerate(results.items()):
             text.append(f"{pkg}: ", style=StyleType.PACKAGE_NAME)
             if info["status"] == "removed":
                 text.append(
@@ -166,17 +162,11 @@ def remove(packages: List[str], yes: bool = False):
                     f"{SymbolType.ERROR} {info['message']}",
                     style=StyleType.ERROR,
                 )
-            text.append("\n")
+            # Only add newline if not the last item
+            if i < len(results) - 1:
+                text.append("\n")
 
-        console.print(
-            Panel(
-                text,
-                title="Package Removal Results",
-                title_align="left",
-                border_style=StyleType.SUCCESS,
-                padding=(1, 2),
-            )
-        )
+        display_panel("Package Removal Results", text)
 
     except Exception as e:
         print_error(f"Failed to remove packages: {str(e)}")
