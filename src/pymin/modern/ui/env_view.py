@@ -9,31 +9,6 @@ from .formatting import Text
 import pathlib
 
 
-def _append_env_info(
-    text: Text, env_data: Dict[str, Any], prefix: str = ""
-) -> Text:
-    """Append environment information to a Text object"""
-    if not env_data["has_venv"]:
-        text.append(f"\n{prefix}None" if prefix else "\n  None")
-        return text
-
-    project_name, env_name = env_data["name"].split("(")
-    env_name = env_name.rstrip(")")
-
-    # Add Name field
-    text.append(f"\n{prefix}Name: " if prefix else "\n  Name: ", style="dim")
-    text.append(project_name, style="cyan")
-    text.append(" (", style="dim")
-    text.append(env_name, style="dim")
-    text.append(")", style="dim")
-
-    # Add Path field
-    text.append(f"\n{prefix}Path: " if prefix else "\n  Path: ", style="dim")
-    text.append(env_data["path"], style="cyan")
-
-    return text
-
-
 def create_env_info_panel(env_info: Dict[str, Any]) -> Text:
     """Create environment information panel content"""
     # Retrieve information
