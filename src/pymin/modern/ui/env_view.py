@@ -2,115 +2,117 @@
 
 import json
 from rich.table import Table
-from rich.text import Text
 from typing import Dict, Any, List
-from .style import StyleType as style, SymbolType
+from .style import StyleType as style
 from .console import display_panel, console
+from .formatting import Text
 import pathlib
+
+
+def _append_env_info(
+    text: Text, env_data: Dict[str, Any], prefix: str = ""
+) -> Text:
+    """Append environment information to a Text object"""
+    if not env_data["has_venv"]:
+        text.append(f"\n{prefix}None" if prefix else "\n  None")
+        return text
+
+    project_name, env_name = env_data["name"].split("(")
+    env_name = env_name.rstrip(")")
+
+    # Add Name field
+    text.append(f"\n{prefix}Name: " if prefix else "\n  Name: ", style="dim")
+    text.append(project_name, style="cyan")
+    text.append(" (", style="dim")
+    text.append(env_name, style="dim")
+    text.append(")", style="dim")
+
+    # Add Path field
+    text.append(f"\n{prefix}Path: " if prefix else "\n  Path: ", style="dim")
+    text.append(env_data["path"], style="cyan")
+
+    return text
 
 
 def create_env_info_panel(env_info: Dict[str, Any]) -> Text:
     """Create environment information panel content"""
-
-    # Retrieve environment status information
+    # Retrieve information
     env_status = env_info["environment_status"]
-    current_env = env_status["current_environment"]
-    active_env = env_status["active_environment"]
-
-    # Retrieve system information
     system_info = env_info["system"]
-    system_python = system_info["python"]
-    system_pip = system_info["pip"]
-    platform_info = system_info["platform"]
+    current_env = env_status["current_environment"]
 
-    # Format system information section
-    content = Text()
-    content.append("System Information", style="white bold")
-
-    # Add Python info
-    content.append("\nPython: ", style="dim")
-    content.append(system_python["version"], style="cyan")
-    content.append(" (", style="dim")
-    content.append(system_python["executable"], style="dim")
-    content.append(")", style="dim")
-
-    # Add Pip info
-    content.append("\nPip: ", style="dim")
-    content.append(system_pip["version"], style="cyan")
-    content.append(" (", style="dim")
-    content.append(system_pip["path"], style="dim")
-    content.append(")", style="dim")
-
-    # Add OS info
-    content.append("\nOS: ", style="dim")
-    content.append(
-        f"{platform_info['os']} {platform_info['os_version']}", style="cyan"
-    )
-    content.append(f" ({platform_info['build']})")
-
-    # Add Architecture info
-    content.append("\nArchitecture: ", style="dim")
-    content.append(platform_info["processor"], style="cyan")
-    content.append(f" ({platform_info['native_arch']})", style="white")
-
-    # Add Kernel info
-    content.append("\nKernel: ", style="dim")
-    content.append(
-        f"{platform_info['system']} {platform_info['release']}", style="cyan"
+    # Create base content with system information
+    content = (
+        Text()
+        # System Information section
+        .append_header("System Information", top_margin=False)
+        .append_field_with_path(
+            "Python",
+            system_info["python"]["version"],
+            system_info["python"]["executable"],
+        )
+        .append_field_with_path(
+            "Pip", system_info["pip"]["version"], system_info["pip"]["path"]
+        )
+        .append_field_with_path(
+            "OS",
+            f"{system_info['platform']['os']} {system_info['platform']['os_version']}",
+            system_info["platform"]["build"],
+        )
+        .append_field_with_path(
+            "Architecture",
+            system_info["platform"]["processor"],
+            system_info["platform"]["native_arch"],
+            path_style="white",
+        )
+        .append_field(
+            "Kernel",
+            f"{system_info['platform']['system']} {system_info['platform']['release']}",
+        )
     )
 
-    # Add Virtual Environment Status section
-    content.append("\n\nVirtual Environment Status", style="white bold")
+    # Add Virtual Environment section
+    content.append_header("Virtual Environment Status")
 
     # Add Active Environment info
-    content.append("\nActive Environment:", style="dim")
-    if active_env["has_venv"]:
-        project_name, env_name = active_env["name"].split("(")
-        env_name = env_name.rstrip(")")  # Remove trailing parenthesis
-        content.append("\n  Name: ", style="dim")
-        content.append(project_name, style="cyan")
-        content.append(" (", style="dim")
-        content.append(env_name, style="dim")
-        content.append(")", style="dim")
-        content.append("\n  Path: ", style="dim")
-        content.append(active_env["path"], style="cyan")
+    content.append_field("Active Environment", "", label_style="dim")
+    if env_status["active_environment"]["has_venv"]:
+        content.append_env_info(env_status["active_environment"])
     else:
         content.append("\n  None")
 
     # Add Current Directory info
-    content.append("\n\nCurrent Directory:", style="dim")
     if current_env["has_venv"]:
-        project_name, env_name = current_env["name"].split("(")
-        env_name = env_name.rstrip(")")  # Remove trailing parenthesis
-        content.append("\n  Name: ", style="dim")
-        content.append(project_name, style="cyan")
-        content.append(" (", style="dim")
-        content.append(env_name, style="dim")
-        content.append(")", style="dim")
-        content.append("\n  Path: ", style="dim")
-        content.append(current_env["path"], style="cyan")
-        content.append("\n  Status: ", style="dim")
-        if current_env["is_active"]:
-            content.append("✓ Active", style="green bold")
-        else:
-            content.append("⚠ Inactive", style="yellow bold")
+        (
+            content.append_header("Current Directory", style="dim")
+            .append_env_info(current_env)
+            .append_field(
+                "Status",
+                "✓ Active" if current_env["is_active"] else "⚠ Inactive",
+                value_style=(
+                    "green bold" if current_env["is_active"] else "yellow bold"
+                ),
+                prefix="  ",
+            )
+        )
     else:
-        content.append("\n  No virtual environment", style="yellow")
-        content.append("\n  Run: ", style="dim")
-        content.append("pmm venv", style="cyan")
-        content.append(" to create one", style="dim")
+        (
+            content.append_header("Current Directory", style="dim")
+            .append("\n  No virtual environment", style="yellow")
+            .append("\n  Run: ", style="dim")
+            .append("pmm venv", style="cyan")
+            .append(" to create one", style="dim")
+        )
 
     return content
 
 
 def display_environment_info(env_info: Dict[str, Any]) -> None:
     """Display formatted environment information"""
-    # Check for the presence of environment status information
     if not env_info.get("environment_status"):
         console.print(
             "[yellow]No virtual environment information available.[/yellow]"
         )
         return
 
-    # Display the formatted environment information panel
     display_panel("Environment Information", create_env_info_panel(env_info))
