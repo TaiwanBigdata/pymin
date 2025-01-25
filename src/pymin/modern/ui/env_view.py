@@ -60,7 +60,7 @@ def create_env_info_panel(env_info: Dict[str, Any]) -> Text:
     content = (
         Text()
         # System Information section
-        .append_header("System Information", top_margin=False)
+        .append_header("System Information", add_line_before=False)
         .append_field(
             "Python",
             system_info["python"]["version"],
@@ -117,7 +117,7 @@ def create_env_info_panel(env_info: Dict[str, Any]) -> Text:
                 "green bold" if current_env["is_active"] else "yellow bold"
             ),
             indent=1,
-            add_newline=False,
+            add_line_after=False,
         )
     else:
         (

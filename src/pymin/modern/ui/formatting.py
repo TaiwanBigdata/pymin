@@ -11,24 +11,24 @@ class Text(RichText):
         self,
         content: str,
         style: str = "white bold",
-        top_margin: bool = True,
-        add_newline: bool = True,
+        add_line_before: bool = True,
+        add_line_after: bool = True,
     ) -> "Text":
         """Append a header to the Text object
 
         Args:
             content: The header content
             style: Style for the header (default: white bold)
-            top_margin: Whether to add a newline before the header (default: True)
-            add_newline: Whether to add a newline after the header (default: True)
+            add_line_before: Whether to add a line before the header (default: True)
+            add_line_after: Whether to add a line after the header (default: True)
 
         Returns:
             self for method chaining
         """
-        if top_margin:
+        if add_line_before:
             self.append("\n")
         self.append(content, style=style)
-        if add_newline:
+        if add_line_after:
             self.append("\n")
         return self
 
@@ -45,7 +45,8 @@ class Text(RichText):
         note_format: str = " ({note})",
         align: bool = False,
         min_label_width: Optional[int] = None,
-        add_newline: bool = True,
+        add_line_before: bool = False,
+        add_line_after: bool = True,
     ) -> "Text":
         """Append a field with optional alignment and note
 
@@ -60,11 +61,16 @@ class Text(RichText):
             note_format: Format string for the note (default: " ({note})")
             align: Whether to align the values (default: False)
             min_label_width: Minimum width for label alignment (default: None)
-            add_newline: Whether to add a newline after the field (default: True)
+            add_line_before: Whether to add a line before the field (default: False)
+            add_line_after: Whether to add a line after the field (default: True)
 
         Returns:
             self for method chaining
         """
+        # Add line before if requested
+        if add_line_before:
+            self.append("\n")
+
         # Calculate indentation
         indent_str = " " * (indent * 2)
 
@@ -92,8 +98,8 @@ class Text(RichText):
         if note:
             self.append(note_format.format(note=note), style=note_style)
 
-        # Add newline if requested
-        if add_newline:
+        # Add line after if requested
+        if add_line_after:
             self.append("\n")
 
         return self
