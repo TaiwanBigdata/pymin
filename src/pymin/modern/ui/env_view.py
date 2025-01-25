@@ -9,6 +9,46 @@ from .formatting import Text
 import pathlib
 
 
+def append_env_info(
+    content: Text,
+    env_data: Dict[str, Any],
+    *,  # Force keyword arguments
+    indent: int = 0,
+    name_style: str = "cyan",
+    path_style: str = "cyan",
+    label_style: str = "dim",
+) -> Text:
+    """Append environment information to the Text object"""
+    if not env_data["has_venv"]:
+        content.append("\n  None")
+        return content
+
+    project_name, env_name = env_data["name"].split("(")
+    env_name = env_name.rstrip(")")
+
+    # Add Name field
+    content.append_field(
+        "Name",
+        project_name,
+        note=env_name,
+        label_style=label_style,
+        value_style=name_style,
+        note_style=label_style,
+        indent=indent,
+    )
+
+    # Add Path field
+    content.append_field(
+        "Path",
+        env_data["path"],
+        label_style=label_style,
+        value_style=path_style,
+        indent=indent,
+    )
+
+    return content
+
+
 def create_env_info_panel(env_info: Dict[str, Any]) -> Text:
     """Create environment information panel content"""
     # Retrieve information
@@ -62,23 +102,22 @@ def create_env_info_panel(env_info: Dict[str, Any]) -> Text:
     # Add Active Environment info
     content.append_field("Active Environment", "", label_style="dim")
     if env_status["active_environment"]["has_venv"]:
-        content.append_env_info(env_status["active_environment"])
+        append_env_info(content, env_status["active_environment"], indent=1)
     else:
         content.append("\n  None")
 
     # Add Current Directory info
     if current_env["has_venv"]:
-        (
-            content.append_header("Current Directory", style="dim")
-            .append_env_info(current_env, indent=1)
-            .append_field(
-                "Status",
-                "✓ Active" if current_env["is_active"] else "⚠ Inactive",
-                value_style=(
-                    "green bold" if current_env["is_active"] else "yellow bold"
-                ),
-                indent=1,
-            )
+        content.append_header("Current Directory", style="dim")
+        append_env_info(content, current_env, indent=1)
+        content.append_field(
+            "Status",
+            "✓ Active" if current_env["is_active"] else "⚠ Inactive",
+            value_style=(
+                "green bold" if current_env["is_active"] else "yellow bold"
+            ),
+            indent=1,
+            add_newline=False,
         )
     else:
         (
