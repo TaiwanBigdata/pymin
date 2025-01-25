@@ -21,28 +21,38 @@ def create_env_info_panel(env_info: Dict[str, Any]) -> Text:
         Text()
         # System Information section
         .append_header("System Information", top_margin=False)
-        .append_field_with_path(
+        .append_field(
             "Python",
             system_info["python"]["version"],
-            system_info["python"]["executable"],
+            note=system_info["python"]["executable"],
+            value_style="cyan",
+            note_style="dim",
         )
-        .append_field_with_path(
-            "Pip", system_info["pip"]["version"], system_info["pip"]["path"]
+        .append_field(
+            "Pip",
+            system_info["pip"]["version"],
+            note=system_info["pip"]["path"],
+            value_style="cyan",
+            note_style="dim",
         )
-        .append_field_with_path(
+        .append_field(
             "OS",
             f"{system_info['platform']['os']} {system_info['platform']['os_version']}",
-            system_info["platform"]["build"],
+            note=system_info["platform"]["build"],
+            value_style="cyan",
+            note_style="dim",
         )
-        .append_field_with_path(
+        .append_field(
             "Architecture",
             system_info["platform"]["processor"],
-            system_info["platform"]["native_arch"],
-            path_style="white",
+            note=system_info["platform"]["native_arch"],
+            value_style="cyan",
+            note_style="white",
         )
         .append_field(
             "Kernel",
             f"{system_info['platform']['system']} {system_info['platform']['release']}",
+            value_style="cyan",
         )
     )
 
@@ -60,14 +70,14 @@ def create_env_info_panel(env_info: Dict[str, Any]) -> Text:
     if current_env["has_venv"]:
         (
             content.append_header("Current Directory", style="dim")
-            .append_env_info(current_env)
+            .append_env_info(current_env, indent=1)
             .append_field(
                 "Status",
                 "✓ Active" if current_env["is_active"] else "⚠ Inactive",
                 value_style=(
                     "green bold" if current_env["is_active"] else "yellow bold"
                 ),
-                prefix="  ",
+                indent=1,
             )
         )
     else:
