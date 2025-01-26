@@ -11,7 +11,7 @@ import sys
 from .modern.core.package_analyzer import PackageAnalyzer
 from .modern.commands.env_command import info, activate, deactivate
 from .modern.commands.venv_command import venv
-from .modern.commands.package_command import add, remove, rm
+from .modern.commands.package_command import add, remove
 from .modern.ui.console import (
     create_package_table,
     create_dependency_tree,
@@ -100,12 +100,12 @@ cli.add_command(venv)
 # Register package management commands
 cli.add_command(add)
 cli.add_command(remove)
-cli.add_command(rm)
 
 # Register command aliases
 cli.add_command(activate, "on")
 cli.add_command(deactivate, "off")
 cli.add_command(venv, "env")
+cli.add_command(remove, "rm")
 
 
 def should_show_fix_tip(packages: Union[List[Dict], Dict[str, Dict]]) -> bool:

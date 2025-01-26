@@ -1,36 +1,25 @@
-"""Package management commands implementation"""
+"""Package management commands"""
 
 import click
-from pathlib import Path
-from typing import List, Optional
-from rich.text import Text
+from typing import List
 from ..core.venv_manager import VenvManager
-from ..ui.console import (
-    print_success,
-    print_error,
-    print_warning,
-    progress_status,
-    display_panel,
-)
-from ..ui.style import (
-    StyleType,
-    SymbolType,
-)
+from ..ui.console import display_panel, print_error, progress_status
+from ..ui.style import StyleType
+from ..ui.formatting import Text
 
 
 @click.command()
 @click.argument("packages", nargs=-1, required=True)
 @click.option(
-    "-d",
     "--dev",
     is_flag=True,
-    help="Add packages as development dependencies",
+    help="Install as development dependency",
 )
 @click.option(
     "-e",
     "--editable",
     is_flag=True,
-    help="Install a project in editable mode",
+    help="Install in editable mode",
 )
 @click.option(
     "--no-deps",
@@ -43,7 +32,7 @@ def add(
     editable: bool = False,
     no_deps: bool = False,
 ):
-    """Add packages to requirements.txt and install them
+    """Add packages to the virtual environment
 
     PACKAGES: One or more package names to add
     """
@@ -57,8 +46,8 @@ def add(
             )
             return
 
-        with progress_status("Adding packages..."):
-            # Add packages to requirements.txt and install them
+        with progress_status("Installing packages..."):
+            # Install packages and update requirements.txt
             results = manager.add_packages(
                 packages,
                 dev=dev,
@@ -69,37 +58,23 @@ def add(
         # Display results
         text = Text()
         for i, (pkg, info) in enumerate(results.items()):
-            text.append(f"{pkg}: ", style=StyleType.PACKAGE_NAME)
-            if info["status"] == "installed":
-                text.append(
-                    f"{SymbolType.SUCCESS} Installed ",
-                    style=StyleType.SUCCESS,
-                )
-                text.append(
-                    f"({info['version']})",
-                    style=StyleType.PACKAGE_VERSION,
-                )
-            elif info["status"] == "updated":
-                text.append(
-                    f"{SymbolType.SUCCESS} Updated ",
-                    style=StyleType.SUCCESS,
-                )
-                text.append(
-                    f"({info['old_version']} → {info['version']})",
-                    style=StyleType.PACKAGE_VERSION,
-                )
-            elif info["status"] == "already_installed":
-                text.append(
-                    f"{SymbolType.INFO} Already installed ",
-                    style=StyleType.INFO,
-                )
-                text.append(
-                    f"({info['version']})",
-                    style=StyleType.PACKAGE_VERSION,
-                )
-            # Only add newline if not the last item
-            if i < len(results) - 1:
-                text.append("\n")
+            text.append_field(
+                pkg,
+                info.get("version", ""),
+                label_style=StyleType.PACKAGE_NAME,
+                value_style=(
+                    StyleType.SUCCESS
+                    if info["status"] == "installed"
+                    else StyleType.ERROR
+                ),
+                note=info.get("message"),
+                note_style=(
+                    StyleType.SUCCESS
+                    if info["status"] == "installed"
+                    else StyleType.ERROR
+                ),
+                add_line_after=(i < len(results) - 1),
+            )
 
         display_panel("Package Installation Results", text)
 
@@ -116,7 +91,7 @@ def add(
     help="Skip confirmation prompt",
 )
 def remove(packages: List[str], yes: bool = False):
-    """Remove packages from requirements.txt and uninstall them
+    """Remove packages from the virtual environment
 
     PACKAGES: One or more package names to remove
     """
@@ -146,31 +121,25 @@ def remove(packages: List[str], yes: bool = False):
         # Display results
         text = Text()
         for i, (pkg, info) in enumerate(results.items()):
-            text.append(f"{pkg}: ", style=StyleType.PACKAGE_NAME)
-            if info["status"] == "removed":
-                text.append(
-                    f"{SymbolType.SUCCESS} Removed",
-                    style=StyleType.SUCCESS,
-                )
-            elif info["status"] == "not_found":
-                text.append(
-                    f"{SymbolType.WARNING} Not found",
-                    style=StyleType.WARNING,
-                )
-            elif info["status"] == "error":
-                text.append(
-                    f"{SymbolType.ERROR} {info['message']}",
-                    style=StyleType.ERROR,
-                )
-            # Only add newline if not the last item
-            if i < len(results) - 1:
-                text.append("\n")
+            text.append_field(
+                pkg,
+                info.get("version", ""),
+                label_style=StyleType.PACKAGE_NAME,
+                value_style=(
+                    StyleType.SUCCESS
+                    if info["status"] == "removed"
+                    else StyleType.ERROR
+                ),
+                note=info.get("message"),
+                note_style=(
+                    StyleType.SUCCESS
+                    if info["status"] == "removed"
+                    else StyleType.ERROR
+                ),
+                add_line_after=(i < len(results) - 1),
+            )
 
         display_panel("Package Removal Results", text)
 
     except Exception as e:
         print_error(f"Failed to remove packages: {str(e)}")
-
-
-# Alias for remove command
-rm = remove

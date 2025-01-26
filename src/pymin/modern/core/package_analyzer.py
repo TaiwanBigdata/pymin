@@ -77,6 +77,11 @@ class PackageAnalyzer:
         self._packages_cache = None
         self._requirements_cache = None
 
+    def clear_cache(self):
+        """Clear the package and requirements cache"""
+        self._packages_cache = None
+        self._requirements_cache = None
+
     def _parse_requirements(self) -> Dict[str, str]:
         """
         Parse requirements.txt file and return package names with their version specs
