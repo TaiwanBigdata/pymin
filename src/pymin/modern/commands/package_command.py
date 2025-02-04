@@ -3,8 +3,8 @@
 import click
 from typing import List
 from ..core.venv_manager import VenvManager
-from ..ui.console import display_panel, print_error, progress_status
-from ..ui.style import StyleType
+from ..ui.console import print_error, progress_status, console
+from ..ui.style import StyleType, SymbolType
 from ..ui.formatting import Text
 
 
@@ -56,27 +56,24 @@ def add(
             )
 
         # Display results
-        text = Text()
-        for i, (pkg, info) in enumerate(results.items()):
-            text.append_field(
-                pkg,
-                info.get("version", ""),
-                label_style=StyleType.PACKAGE_NAME,
-                value_style=(
-                    StyleType.SUCCESS
-                    if info["status"] == "installed"
-                    else StyleType.ERROR
-                ),
-                note=info.get("message"),
-                note_style=(
-                    StyleType.SUCCESS
-                    if info["status"] == "installed"
-                    else StyleType.ERROR
-                ),
-                add_line_after=(i < len(results) - 1),
-            )
-
-        display_panel("Package Installation Results", text)
+        console.print()
+        for pkg, info in results.items():
+            # Show main package result
+            if info["status"] == "installed":
+                console.print(
+                    f"[green]{SymbolType.SUCCESS}[/green] Added [cyan]{pkg}=={info['version']}[/cyan]"
+                )
+                # Show dependencies if any
+                if info.get("dependencies"):
+                    console.print()  # Add a blank line
+                    console.print("[dim]Installed dependencies:[/dim]")
+                    for dep in sorted(info["dependencies"]):
+                        console.print(f"[dim]  • {dep}[/dim]")
+            else:
+                console.print(
+                    f"[red]{SymbolType.ERROR}[/red] Failed to add [cyan]{pkg}[/cyan]: {info.get('message', 'Unknown error')}"
+                )
+            console.print()
 
     except Exception as e:
         print_error(f"Failed to add packages: {str(e)}")
@@ -119,27 +116,23 @@ def remove(packages: List[str], yes: bool = False):
             results = manager.remove_packages(packages)
 
         # Display results
-        text = Text()
-        for i, (pkg, info) in enumerate(results.items()):
-            text.append_field(
-                pkg,
-                info.get("version", ""),
-                label_style=StyleType.PACKAGE_NAME,
-                value_style=(
-                    StyleType.SUCCESS
-                    if info["status"] == "removed"
-                    else StyleType.ERROR
-                ),
-                note=info.get("message"),
-                note_style=(
-                    StyleType.SUCCESS
-                    if info["status"] == "removed"
-                    else StyleType.ERROR
-                ),
-                add_line_after=(i < len(results) - 1),
-            )
-
-        display_panel("Package Removal Results", text)
+        console.print()
+        for pkg, info in results.items():
+            # Show main package result
+            if info["status"] == "removed":
+                console.print(
+                    f"[green]{SymbolType.SUCCESS}[/green] Removed [cyan]{pkg}=={info['version']}[/cyan]"
+                )
+                # Show removed dependencies if any
+                if info.get("dependencies"):
+                    console.print("[dim]Removed dependencies:[/dim]")
+                    for dep in sorted(info["dependencies"]):
+                        console.print(f"[dim]  • {dep}[/dim]")
+            else:
+                console.print(
+                    f"[red]{SymbolType.ERROR}[/red] Failed to remove [cyan]{pkg}[/cyan]: {info.get('message', 'Unknown error')}"
+                )
+            console.print()
 
     except Exception as e:
         print_error(f"Failed to remove packages: {str(e)}")

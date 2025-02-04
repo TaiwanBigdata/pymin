@@ -1,11 +1,42 @@
 """Text formatting patterns for UI components"""
 
 from rich.text import Text as RichText
-from typing import Optional, Dict, Any
+from rich.style import Style
+from rich.tree import Tree
+from typing import Optional, Dict, Any, Union
 
 
 class Text(RichText):
     """Enhanced Text class with formatting methods"""
+
+    def __init__(self):
+        """Initialize Text object"""
+        super().__init__()
+
+    def append(
+        self, text: Union[str, RichText, Tree], style: Optional[str] = None
+    ) -> "Text":
+        """Append text with optional style
+
+        Args:
+            text: The text to append (can be string, RichText, or Tree)
+            style: Optional style to apply to the text
+
+        Returns:
+            self for method chaining
+        """
+        if isinstance(text, Tree):
+            # Convert Tree to string representation with fixed width
+            from rich.console import Console
+            from io import StringIO
+
+            console = Console(file=StringIO(), force_terminal=True, width=50)
+            console.print(text)
+            tree_str = console.file.getvalue()
+            super().append(tree_str)
+        else:
+            super().append(text, style=style)
+        return self
 
     def append_header(
         self,
@@ -102,4 +133,12 @@ class Text(RichText):
         if add_line_after:
             self.append("\n")
 
+        return self
+
+    def __str__(self) -> str:
+        """Convert to string"""
+        return str(self)
+
+    def __rich__(self):
+        """Rich representation"""
         return self

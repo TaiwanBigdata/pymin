@@ -25,6 +25,7 @@ def info():
             env_info = manager.get_environment_info()
         display_environment_info(env_info)
     except Exception as e:
+        raise e
         console.print(f"\n[red]Error: {str(e)}[/red]")
 
 

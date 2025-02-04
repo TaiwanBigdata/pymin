@@ -10,6 +10,7 @@ __pycache__/
 *.egg-info/
 *.egg-info/*
 *.bak
+test.py
 
 # Project Specific
 /app/test*.py

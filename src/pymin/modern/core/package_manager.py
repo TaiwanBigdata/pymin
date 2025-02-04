@@ -4,8 +4,11 @@ import os
 import sys
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Set
 from ..ui.console import progress_status, print_error
+from rich.text import Text
+from rich.tree import Tree
+from rich.style import Style
 
 
 class PackageManager:
@@ -20,6 +23,40 @@ class PackageManager:
         self.venv_path = venv_path
         self.requirements_path = Path("requirements.txt")
         self._pip_path = self._get_pip_path()
+
+    def _build_dependency_tree(
+        self,
+        name: str,
+        version: str,
+        deps: List[str],
+        visited: Optional[Set[str]] = None,
+    ) -> Tree:
+        """Build a rich Tree structure for package dependencies"""
+        if visited is None:
+            visited = set()
+
+        # Create tree node
+        tree = Tree(
+            Text.assemble(
+                (name, "cyan"),
+                ("==", "dim"),
+                (version, "cyan"),
+            )
+        )
+
+        # Add dependencies
+        if deps:
+            visited.add(name)
+            for dep in sorted(deps):
+                if dep not in visited:
+                    dep_version = self._get_installed_version(dep)
+                    dep_deps = self._check_dependencies(dep)
+                    dep_tree = self._build_dependency_tree(
+                        dep, dep_version, dep_deps, visited
+                    )
+                    tree.add(dep_tree)
+
+        return tree
 
     def add_packages(
         self,
@@ -56,20 +93,7 @@ class PackageManager:
                 }
             return results
 
-        # 3. Check dependencies
-        dependencies = {}
-        for name, version in package_specs:
-            try:
-                deps = self._check_dependencies(name, version)
-                dependencies[name] = deps
-            except Exception as e:
-                results[name] = {
-                    "status": "error",
-                    "message": f"Failed to check dependencies: {str(e)}",
-                }
-                return results
-
-        # 4. Install packages
+        # 3. Install packages
         for name, version in package_specs:
             try:
                 # Construct pip command
@@ -81,20 +105,83 @@ class PackageManager:
                 pkg_spec = f"{name}=={version}" if version else name
                 cmd.append(pkg_spec)
 
-                # Execute installation
-                subprocess.run(cmd, check=True, capture_output=True, text=True)
+                # Execute installation with progress
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,
+                    universal_newlines=True,
+                )
 
-                results[name] = {
-                    "status": "installed",
-                    "version": version or self._get_installed_version(name),
-                    "dependencies": dependencies.get(name, []),
-                }
-            except subprocess.CalledProcessError as e:
-                results[name] = {"status": "error", "message": e.stderr}
+                while True:
+                    output = process.stdout.readline()
+                    if output == "" and process.poll() is not None:
+                        break
+                    if output:
+                        # Check for dependency installation messages
+                        if "Collecting" in output:
+                            dep = output.split()[1].strip().split("==")[0]
+                            if dep != name:
+                                progress_status.update(
+                                    Text.assemble(
+                                        ("Installing ", "yellow"),
+                                        (f"{name}", "cyan"),
+                                        ("==", "cyan"),
+                                        (f"{version}", "cyan"),
+                                        ("...\n", "yellow"),
+                                        ("Installing dependency: ", "dim"),
+                                        (f"{dep}", "dim"),
+                                    )
+                                )
+
+                stdout, stderr = process.communicate()
+                if process.returncode == 0:
+                    # Get actual installed version
+                    installed_version = version or self._get_installed_version(
+                        name
+                    )
+
+                    # Get installed dependencies from pip show
+                    cmd = [str(self._pip_path), "show", name]
+                    output = subprocess.run(
+                        cmd, capture_output=True, text=True, check=True
+                    )
+
+                    # Parse dependencies
+                    deps = []
+                    for line in output.stdout.split("\n"):
+                        if line.startswith("Requires:"):
+                            deps_str = line[9:].strip()
+                            if deps_str:
+                                deps = [
+                                    d.strip().split(" ")[
+                                        0
+                                    ]  # Get package name without version
+                                    for d in deps_str.split(",")
+                                    if d.strip()
+                                ]
+                            break
+
+                    # Build dependency tree
+                    dep_tree = self._build_dependency_tree(
+                        name, installed_version, deps
+                    )
+
+                    results[name] = {
+                        "status": "installed",
+                        "version": installed_version,
+                        "dependencies": sorted(deps),
+                        "tree": dep_tree,
+                    }
+                else:
+                    results[name] = {"status": "error", "message": stderr}
+
             except Exception as e:
                 results[name] = {"status": "error", "message": str(e)}
 
-        # 5. Update requirements.txt
+        # 4. Update requirements.txt
         if any(r["status"] == "installed" for r in results.values()):
             try:
                 self._update_requirements(
@@ -123,6 +210,7 @@ class PackageManager:
             Dict with removal results for each package
         """
         results = {}
+        removed_deps = set()  # Track all removed dependencies
 
         # 1. Check if packages exist
         existing = self._get_installed_packages()
@@ -144,11 +232,61 @@ class PackageManager:
                     }
                     continue
 
-                # 3. Remove package
-                cmd = [str(self._pip_path), "uninstall", "-y", pkg]
-                subprocess.run(cmd, check=True, capture_output=True, text=True)
+                # Get dependencies before removal
+                deps = self._check_dependencies(pkg)
+                dep_tree = self._build_dependency_tree(pkg, existing[pkg], deps)
 
-                results[pkg] = {"status": "removed", "version": existing[pkg]}
+                # 3. Remove package with progress
+                main_status = Text.assemble(
+                    ("Removing ", "yellow"),
+                    (f"{pkg}", "cyan"),
+                    ("...", "yellow"),
+                )
+                progress_status.update(main_status)
+
+                cmd = [str(self._pip_path), "uninstall", "-y", pkg]
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,
+                    universal_newlines=True,
+                )
+
+                while True:
+                    output = process.stdout.readline()
+                    if output == "" and process.poll() is not None:
+                        break
+                    if output:
+                        # Check for dependency removal messages
+                        if "Uninstalling" in output:
+                            dep = output.split()[1].strip().rstrip("-")
+                            if dep != pkg:
+                                removed_deps.add(
+                                    dep
+                                )  # Track removed dependency
+                                progress_status.update(
+                                    Text.assemble(
+                                        ("Removing ", "yellow"),
+                                        (f"{pkg}", "cyan"),
+                                        ("...\n", "yellow"),
+                                        ("Uninstalling dependency: ", "dim"),
+                                        (f"{dep}", "dim"),
+                                    )
+                                )
+
+                stdout, stderr = process.communicate()
+                if process.returncode == 0:
+                    results[pkg] = {
+                        "status": "removed",
+                        "version": existing[pkg],
+                        "dependencies": deps,
+                        "tree": dep_tree,
+                    }
+                else:
+                    results[pkg] = {"status": "error", "message": stderr}
+
             except subprocess.CalledProcessError as e:
                 results[pkg] = {"status": "error", "message": e.stderr}
             except Exception as e:
@@ -227,7 +365,15 @@ class PackageManager:
             deps = []
             for line in output.stdout.split("\n"):
                 if line.startswith("Requires:"):
-                    deps = [d.strip() for d in line[9:].split(",") if d.strip()]
+                    deps_str = line[9:].strip()
+                    if deps_str:  # Only process if there are dependencies
+                        deps = [
+                            d.strip().split(" ")[
+                                0
+                            ]  # Get package name without version
+                            for d in deps_str.split(",")
+                            if d.strip()
+                        ]
                     break
             return deps
         except subprocess.CalledProcessError:

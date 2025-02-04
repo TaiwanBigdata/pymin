@@ -20,11 +20,17 @@ def append_env_info(
 ) -> Text:
     """Append environment information to the Text object"""
     if not env_data["has_venv"]:
-        content.append("\n  None")
+        content.append("  None\n")
         return content
 
-    project_name, env_name = env_data["name"].split("(")
-    env_name = env_name.rstrip(")")
+    # Handle case where name is None or doesn't contain parentheses
+    name = env_data["name"]
+    if name and "(" in name:
+        project_name, env_name = name.split("(")
+        env_name = env_name.rstrip(")")
+    else:
+        project_name = name or "Unknown"
+        env_name = "None"
 
     # Add Name field
     content.append_field(
@@ -37,14 +43,15 @@ def append_env_info(
         indent=indent,
     )
 
-    # Add Path field
-    content.append_field(
-        "Path",
-        env_data["path"],
-        label_style=label_style,
-        value_style=path_style,
-        indent=indent,
-    )
+    # Add Path field only if path exists
+    if env_data.get("path"):
+        content.append_field(
+            "Path",
+            env_data["path"],
+            label_style=label_style,
+            value_style=path_style,
+            indent=indent,
+        )
 
     return content
 
@@ -104,7 +111,7 @@ def create_env_info_panel(env_info: Dict[str, Any]) -> Text:
     if env_status["active_environment"]["has_venv"]:
         append_env_info(content, env_status["active_environment"], indent=1)
     else:
-        content.append("\n  None")
+        content.append("  None\n")
 
     # Add Current Directory info
     if current_env["has_venv"]:
