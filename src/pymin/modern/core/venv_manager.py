@@ -22,7 +22,7 @@ class VenvManager:
         self.package_manager = None
         if self.from_env:
             self.package_manager = PackageManager(self.from_env)
-        self.analyzer = VenvAnalyzer(self.from_env)
+        self.analyzer = VenvAnalyzer()
         self.package_analyzer = PackageAnalyzer(self.from_env)
 
     def get_environment_info(self) -> Dict[str, Any]:
