@@ -129,7 +129,7 @@ def create_env_info_panel(env_info: Dict[str, Any]) -> Text:
     else:
         (
             content.append_header("Current Directory", style="dim")
-            .append("\n  No virtual environment", style="yellow")
+            .append("  No virtual environment", style="yellow")
             .append("\n  Run: ", style="dim")
             .append("pmm venv", style="cyan")
             .append(" to create one", style="dim")
