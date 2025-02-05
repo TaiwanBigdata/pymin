@@ -12,6 +12,7 @@ from .modern.core.package_analyzer import PackageAnalyzer
 from .modern.commands.env_command import info, activate, deactivate
 from .modern.commands.venv_command import venv
 from .modern.commands.package_command import add, remove
+from .modern.commands.pypi_command import check, search, release
 
 # from .modern.commands.package_command import list, update, fix
 # from .modern.commands.pypi_command import check, search, release
@@ -105,9 +106,9 @@ cli.add_command(remove)
 # cli.add_command(fix)
 
 # Register PyPI integration commands
-# cli.add_command(check)
-# cli.add_command(search)
-# cli.add_command(release)
+cli.add_command(check)
+cli.add_command(search)
+cli.add_command(release)
 
 # Register command aliases
 cli.add_command(activate, "on")
