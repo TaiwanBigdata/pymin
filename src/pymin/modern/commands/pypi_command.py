@@ -4,6 +4,7 @@ import click
 from typing import Optional
 from ..core.check import PackageNameChecker
 from ..core.search import PackageSearcher
+from ..core.release import PackageReleaser
 from ..ui.console import print_error, print_warning, print_success, console
 from rich.table import Table
 from rich.text import Text
@@ -83,8 +84,8 @@ def search(name: str, threshold: float):
 def release(test: bool):
     """Build and publish package to PyPI or Test PyPI"""
     try:
-        print_warning("Release functionality is not yet implemented.")
-        return
+        releaser = PackageReleaser()
+        releaser.release(test=test)
     except Exception as e:
         print_error(f"Failed to release package: {str(e)}")
         return
