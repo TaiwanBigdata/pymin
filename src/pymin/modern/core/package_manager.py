@@ -5,10 +5,11 @@ import sys
 import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any, Set
-from ..ui.console import progress_status, print_error
+from ..ui.console import progress_status, print_error, console
 from rich.text import Text
 from rich.tree import Tree
 from rich.style import Style
+from .package_analyzer import PackageAnalyzer
 
 
 class PackageManager:
@@ -23,6 +24,39 @@ class PackageManager:
         self.venv_path = venv_path
         self.requirements_path = Path("requirements.txt")
         self._pip_path = self._get_pip_path()
+
+        # Initialize package analyzer with project root directory
+        self.package_analyzer = PackageAnalyzer()
+
+    def _check_pip_upgrade(self, stderr: str) -> None:
+        """Check if pip needs upgrade and handle it
+
+        Args:
+            stderr: Error output from pip
+        """
+        if "new version of pip available" in stderr.lower():
+            try:
+                # Get current and latest version
+                current_version = None
+                latest_version = None
+                for line in stderr.split("\n"):
+                    if "new release" in line.lower():
+                        parts = line.split()
+                        for i, part in enumerate(parts):
+                            if part == "->":
+                                current_version = parts[i - 1]
+                                latest_version = parts[i + 1]
+                                break
+
+                if current_version and latest_version:
+                    console.print(
+                        f"[yellow]⚠ A new version of pip is available: {current_version} -> {latest_version}[/yellow]"
+                    )
+                    console.print(
+                        "[dim]To update, run: pip install --upgrade pip[/dim]"
+                    )
+            except Exception:
+                pass
 
     def _build_dependency_tree(
         self,
@@ -82,18 +116,7 @@ class PackageManager:
         # 1. Parse package specifications
         package_specs = [self._parse_package_spec(pkg) for pkg in packages]
 
-        # 2. Check existing packages and conflicts
-        existing = self._get_installed_packages()
-        conflicts = self._check_conflicts(package_specs, existing)
-        if conflicts:
-            for conflict in conflicts:
-                results[conflict["package"]] = {
-                    "status": "conflict",
-                    "message": f"Version conflict: {conflict['requested']} requested, {conflict['installed']} installed",
-                }
-            return results
-
-        # 3. Install packages
+        # 2. Install packages one by one
         for name, version in package_specs:
             try:
                 # Construct pip command
@@ -105,95 +128,124 @@ class PackageManager:
                 pkg_spec = f"{name}=={version}" if version else name
                 cmd.append(pkg_spec)
 
-                # Execute installation with progress
-                process = subprocess.Popen(
+                # First try: capture output to check for pip upgrade notice
+                process = subprocess.run(
                     cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
-                    bufsize=1,
-                    universal_newlines=True,
                 )
 
-                while True:
-                    output = process.stdout.readline()
-                    if output == "" and process.poll() is not None:
-                        break
-                    if output:
-                        # Check for dependency installation messages
-                        if "Collecting" in output:
-                            dep = output.split()[1].strip().split("==")[0]
-                            if dep != name:
-                                progress_status.update(
-                                    Text.assemble(
-                                        ("Installing ", "yellow"),
-                                        (f"{name}", "cyan"),
-                                        ("==", "cyan"),
-                                        (f"{version}", "cyan"),
-                                        ("...\n", "yellow"),
-                                        ("Installing dependency: ", "dim"),
-                                        (f"{dep}", "dim"),
-                                    )
-                                )
-
-                stdout, stderr = process.communicate()
-                if process.returncode == 0:
-                    # Get actual installed version
-                    installed_version = version or self._get_installed_version(
-                        name
+                # If we get a pip upgrade notice, try again
+                if (
+                    process.returncode != 0
+                    and "new release of pip available" in process.stderr.lower()
+                ):
+                    self._check_pip_upgrade(process.stderr)
+                    # Second try: capture output again
+                    process = subprocess.run(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        check=True,
                     )
 
-                    # Get installed dependencies from pip show
-                    cmd = [str(self._pip_path), "show", name]
-                    output = subprocess.run(
-                        cmd, capture_output=True, text=True, check=True
+                # If installation was successful
+                if (
+                    process.returncode == 0
+                    or "Successfully installed" in process.stdout
+                ):
+                    # Get installed version
+                    self.package_analyzer.clear_cache()
+                    packages_after = (
+                        self.package_analyzer.get_installed_packages()
                     )
 
-                    # Parse dependencies
-                    deps = []
-                    for line in output.stdout.split("\n"):
-                        if line.startswith("Requires:"):
-                            deps_str = line[9:].strip()
-                            if deps_str:
-                                deps = [
-                                    d.strip().split(" ")[
-                                        0
-                                    ]  # Get package name without version
-                                    for d in deps_str.split(",")
-                                    if d.strip()
-                                ]
+                    # Try to find the package with case-insensitive matching
+                    pkg_name = name.lower()
+                    matching_pkg = None
+                    for installed_pkg, info in packages_after.items():
+                        if installed_pkg.lower() == pkg_name:
+                            matching_pkg = installed_pkg
+                            pkg_info = info
                             break
 
-                    # Build dependency tree
-                    dep_tree = self._build_dependency_tree(
-                        name, installed_version, deps
-                    )
+                    if matching_pkg:
+                        results[matching_pkg] = {
+                            "status": "installed",
+                            "version": pkg_info["installed_version"],
+                            "dependencies": sorted(pkg_info["dependencies"]),
+                            "existing_dependencies": [],
+                            "new_dependencies": sorted(
+                                pkg_info["dependencies"]
+                            ),
+                        }
 
-                    results[name] = {
-                        "status": "installed",
-                        "version": installed_version,
-                        "dependencies": sorted(deps),
-                        "tree": dep_tree,
-                    }
+                        # Update requirements.txt
+                        self._update_requirements(
+                            added=[
+                                f"{matching_pkg}=={pkg_info['installed_version']}"
+                            ],
+                            dev=dev,
+                        )
+                    else:
+                        # Try to get the version from pip list
+                        try:
+                            pip_list = subprocess.run(
+                                [str(self._pip_path), "list", "--format=json"],
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,
+                                text=True,
+                                check=True,
+                            )
+                            packages_list = eval(
+                                pip_list.stdout
+                            )  # Safe as we control the input
+                            for pkg in packages_list:
+                                if pkg["name"].lower() == name.lower():
+                                    results[pkg["name"]] = {
+                                        "status": "installed",
+                                        "version": pkg["version"],
+                                        "dependencies": [],
+                                        "existing_dependencies": [],
+                                        "new_dependencies": [],
+                                    }
+                                    # Update requirements.txt
+                                    self._update_requirements(
+                                        added=[
+                                            f"{pkg['name']}=={pkg['version']}"
+                                        ],
+                                        dev=dev,
+                                    )
+                                    break
+                            else:
+                                results[name] = {
+                                    "status": "error",
+                                    "message": "Package not found after installation",
+                                }
+                        except Exception:
+                            results[name] = {
+                                "status": "error",
+                                "message": "Package not found after installation",
+                            }
                 else:
-                    results[name] = {"status": "error", "message": stderr}
+                    # Real error occurred
+                    results[name] = {
+                        "status": "error",
+                        "message": process.stderr,
+                    }
 
+            except subprocess.CalledProcessError as e:
+                results[name] = {
+                    "status": "error",
+                    "message": e.stderr if e.stderr else str(e),
+                }
             except Exception as e:
-                results[name] = {"status": "error", "message": str(e)}
-
-        # 4. Update requirements.txt
-        if any(r["status"] == "installed" for r in results.values()):
-            try:
-                self._update_requirements(
-                    added=[
-                        f"{name}=={results[name]['version']}"
-                        for name, result in results.items()
-                        if result["status"] == "installed"
-                    ],
-                    dev=dev,
-                )
-            except Exception as e:
-                print_error(f"Failed to update requirements.txt: {str(e)}")
+                results[name] = {
+                    "status": "error",
+                    "message": str(e),
+                }
 
         return results
 
@@ -210,100 +262,112 @@ class PackageManager:
             Dict with removal results for each package
         """
         results = {}
-        removed_deps = set()  # Track all removed dependencies
 
-        # 1. Check if packages exist
-        existing = self._get_installed_packages()
+        # Clear cache to get fresh package information
+        self.package_analyzer.clear_cache()
+
+        # Get package information from analyzer
+        installed_packages = self.package_analyzer.get_installed_packages()
+        print("Debug: Installed packages:", list(installed_packages.keys()))
+
+        # Create a case-insensitive lookup dictionary using normalized names
+        pkg_case_map = {
+            self.package_analyzer._normalize_package_name(pkg): pkg
+            for pkg in installed_packages.keys()
+        }
+        print("Debug: Package case map:", pkg_case_map)
+
+        # Get all dependencies
+        all_dependencies = self._get_all_dependencies()
+        packages_to_remove = set()
+        dependency_info = {}
+
+        # 1. Check each package
         for pkg in packages:
-            if pkg not in existing:
+            # Normalize the package name
+            pkg_normalized = self.package_analyzer._normalize_package_name(pkg)
+            print(f"Debug: Looking for normalized name: {pkg_normalized}")
+            print(f"Debug: Original package name: {pkg}")
+
+            # Try to find the actual package name with correct case
+            actual_pkg_name = pkg_case_map.get(pkg_normalized)
+            print(f"Debug: Found actual package name: {actual_pkg_name}")
+
+            if not actual_pkg_name:
                 results[pkg] = {
                     "status": "not_found",
                     "message": "Package not installed",
                 }
                 continue
 
-            # 2. Check if package is a dependency
-            try:
-                is_dep, dependents = self._is_dependency(pkg)
-                if is_dep:
-                    results[pkg] = {
-                        "status": "error",
-                        "message": f"Package is a dependency of: {', '.join(dependents)}",
+            # Add the main package to removal list
+            packages_to_remove.add(actual_pkg_name)
+
+            # Check its dependencies
+            pkg_info = installed_packages[actual_pkg_name]
+            pkg_deps = pkg_info.get("dependencies", [])
+            removable_deps = set()
+
+            # For each dependency
+            for dep in pkg_deps:
+                # If dependency exists in installed packages
+                if dep in installed_packages:
+                    # Check if it's used by other packages
+                    other_dependents = all_dependencies.get(dep, set()) - {
+                        actual_pkg_name
                     }
-                    continue
+                    if not other_dependents:
+                        removable_deps.add(dep)
+                    else:
+                        if dep not in dependency_info:
+                            dependency_info[dep] = {
+                                "kept_for": list(other_dependents)
+                            }
 
-                # Get dependencies before removal
-                deps = self._check_dependencies(pkg)
-                dep_tree = self._build_dependency_tree(pkg, existing[pkg], deps)
+            # Store removable dependencies
+            if removable_deps:
+                packages_to_remove.update(removable_deps)
+                dependency_info[actual_pkg_name] = {
+                    "removable_deps": list(removable_deps)
+                }
 
-                # 3. Remove package with progress
-                main_status = Text.assemble(
-                    ("Removing ", "yellow"),
-                    (f"{pkg}", "cyan"),
-                    ("...", "yellow"),
-                )
-                progress_status.update(main_status)
-
+        # 2. Remove packages
+        for pkg in packages_to_remove:
+            try:
                 cmd = [str(self._pip_path), "uninstall", "-y", pkg]
-                process = subprocess.Popen(
+                process = subprocess.run(
                     cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
-                    bufsize=1,
-                    universal_newlines=True,
                 )
 
-                while True:
-                    output = process.stdout.readline()
-                    if output == "" and process.poll() is not None:
-                        break
-                    if output:
-                        # Check for dependency removal messages
-                        if "Uninstalling" in output:
-                            dep = output.split()[1].strip().rstrip("-")
-                            if dep != pkg:
-                                removed_deps.add(
-                                    dep
-                                )  # Track removed dependency
-                                progress_status.update(
-                                    Text.assemble(
-                                        ("Removing ", "yellow"),
-                                        (f"{pkg}", "cyan"),
-                                        ("...\n", "yellow"),
-                                        ("Uninstalling dependency: ", "dim"),
-                                        (f"{dep}", "dim"),
-                                    )
-                                )
-
-                stdout, stderr = process.communicate()
                 if process.returncode == 0:
+                    pkg_info = installed_packages[pkg]
                     results[pkg] = {
                         "status": "removed",
-                        "version": existing[pkg],
-                        "dependencies": deps,
-                        "tree": dep_tree,
+                        "version": pkg_info["installed_version"],
+                        "dependencies": pkg_info["dependencies"],
+                        "dependency_info": dependency_info.get(pkg, {}),
                     }
+
+                    # Update requirements.txt
+                    self._update_requirements(removed=[pkg])
                 else:
-                    results[pkg] = {"status": "error", "message": stderr}
+                    results[pkg] = {
+                        "status": "error",
+                        "message": (
+                            process.stderr
+                            if process.stderr
+                            else "Unknown error during uninstallation"
+                        ),
+                    }
 
-            except subprocess.CalledProcessError as e:
-                results[pkg] = {"status": "error", "message": e.stderr}
             except Exception as e:
-                results[pkg] = {"status": "error", "message": str(e)}
-
-        # 4. Update requirements.txt
-        if any(r["status"] == "removed" for r in results.values()):
-            try:
-                self._update_requirements(
-                    removed=[
-                        name
-                        for name, result in results.items()
-                        if result["status"] == "removed"
-                    ]
-                )
-            except Exception as e:
-                print_error(f"Failed to update requirements.txt: {str(e)}")
+                results[pkg] = {
+                    "status": "error",
+                    "message": str(e),
+                }
 
         return results
 
@@ -314,22 +378,45 @@ class PackageManager:
             return name.strip(), version.strip()
         return spec.strip(), None
 
-    def _get_installed_packages(self) -> Dict[str, str]:
-        """Get dict of installed packages and their versions"""
-        try:
-            cmd = [str(self._pip_path), "list", "--format=json"]
-            output = subprocess.run(
-                cmd, check=True, capture_output=True, text=True
-            )
-            packages = eval(output.stdout)  # Safe as we control the input
-            return {pkg["name"]: pkg["version"] for pkg in packages}
-        except Exception as e:
-            raise RuntimeError(f"Failed to get installed packages: {str(e)}")
+    def _get_installed_packages(self) -> Dict[str, Dict[str, Any]]:
+        """Get installed packages and their information
+
+        Returns:
+            Dict mapping package names to their information
+        """
+        return self.package_analyzer.get_installed_packages()
+
+    def _get_all_dependencies(self) -> Dict[str, Set[str]]:
+        """Get all packages and their dependents
+
+        Returns:
+            Dict mapping package names to sets of packages that depend on them
+        """
+        packages = self._get_installed_packages()
+        dependents = {}
+
+        # Build dependency map
+        for pkg_name, pkg_info in packages.items():
+            for dep in pkg_info["dependencies"]:
+                if dep not in dependents:
+                    dependents[dep] = set()
+                dependents[dep].add(pkg_name)
+
+        return dependents
 
     def _get_installed_version(self, package: str) -> Optional[str]:
-        """Get installed version of a package"""
-        packages = self._get_installed_packages()
-        return packages.get(package)
+        """Get installed version of a package
+
+        Args:
+            package: Package name
+
+        Returns:
+            Version string if installed, None otherwise
+        """
+        packages = self.package_analyzer.get_installed_packages()
+        if package in packages:
+            return packages[package]["installed_version"]
+        return None
 
     def _check_conflicts(
         self,
@@ -349,59 +436,37 @@ class PackageManager:
                 )
         return conflicts
 
-    def _check_dependencies(
-        self, package: str, version: Optional[str] = None
-    ) -> List[str]:
-        """Check package dependencies"""
-        try:
-            cmd = [str(self._pip_path), "show", package]
-            if version:
-                cmd[-1] = f"{package}=={version}"
-            output = subprocess.run(
-                cmd, check=True, capture_output=True, text=True
-            )
+    def _check_dependencies(self, package: str) -> List[str]:
+        """Get dependencies of a package
 
-            # Parse dependencies from output
-            deps = []
-            for line in output.stdout.split("\n"):
-                if line.startswith("Requires:"):
-                    deps_str = line[9:].strip()
-                    if deps_str:  # Only process if there are dependencies
-                        deps = [
-                            d.strip().split(" ")[
-                                0
-                            ]  # Get package name without version
-                            for d in deps_str.split(",")
-                            if d.strip()
-                        ]
-                    break
-            return deps
-        except subprocess.CalledProcessError:
-            # Package not found or version doesn't exist
-            return []
-        except Exception as e:
-            raise RuntimeError(f"Failed to check dependencies: {str(e)}")
+        Args:
+            package: Package name
+
+        Returns:
+            List of dependency names
+        """
+        packages = self.package_analyzer.get_installed_packages()
+        if package in packages:
+            return packages[package]["dependencies"]
+        return []
 
     def _is_dependency(self, package: str) -> Tuple[bool, List[str]]:
-        """Check if package is a dependency of other packages"""
-        try:
-            cmd = [str(self._pip_path), "list", "--format=json"]
-            output = subprocess.run(
-                cmd, check=True, capture_output=True, text=True
-            )
-            packages = eval(output.stdout)  # Safe as we control the input
+        """Check if package is a dependency of other packages
 
-            dependents = []
-            for pkg in packages:
-                deps = self._check_dependencies(pkg["name"])
-                if package in deps:
-                    dependents.append(pkg["name"])
+        Args:
+            package: Package name to check
 
-            return bool(dependents), dependents
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to check if package is a dependency: {str(e)}"
-            )
+        Returns:
+            Tuple of (is_dependency, list_of_dependent_packages)
+        """
+        packages = self.package_analyzer.get_installed_packages()
+        dependents = []
+
+        for pkg_name, pkg_info in packages.items():
+            if pkg_name != package and package in pkg_info["dependencies"]:
+                dependents.append(pkg_name)
+
+        return bool(dependents), dependents
 
     def _update_requirements(
         self,

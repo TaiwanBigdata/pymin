@@ -64,30 +64,73 @@ def add(
                     f"[green]{SymbolType.SUCCESS}[/green] Added [cyan]{pkg}=={info['version']}[/cyan]"
                 )
                 # Show dependencies if any
-                if info.get("dependencies"):
-                    console.print()  # Add a blank line
-                    console.print("[dim]Installed dependencies:[/dim]")
-                    for dep in sorted(info["dependencies"]):
-                        console.print(f"[dim]  • {dep}[/dim]")
+                if info.get("new_dependencies") or info.get(
+                    "existing_dependencies"
+                ):
+                    # Get versions for all dependencies
+                    dep_versions = {}
+                    for dep in info.get("new_dependencies", []) + info.get(
+                        "existing_dependencies", []
+                    ):
+                        dep_version = (
+                            manager.package_manager._get_installed_version(dep)
+                        )
+                        if dep_version:
+                            dep_versions[dep] = dep_version
+
+                    # Format dependencies with versions
+                    if dep_versions:
+                        deps_str = ", ".join(
+                            (
+                                f"{dep}=={version}"  # 新安裝的套件保持原色
+                                if dep in info.get("new_dependencies", [])
+                                else f"[white dim]{dep}=={version}[/white dim]"  # 已安裝的套件使用白色 dim
+                            )
+                            for dep, version in sorted(dep_versions.items())
+                        )
+                        console.print(f"Dependencies:  {deps_str}")
+                console.print()  # Add a blank line between packages
             else:
-                console.print(
-                    f"[red]{SymbolType.ERROR}[/red] Failed to add [cyan]{pkg}[/cyan]: {info.get('message', 'Unknown error')}"
-                )
-            console.print()
+                error_msg = info.get("message", "Unknown error")
+
+                # Check if it's a version-related error
+                if "Version not found" in error_msg:
+                    console.print(
+                        f"[red]{SymbolType.ERROR}[/red] Failed to add [cyan]{pkg}[/cyan]"
+                    )
+                    # Split the message to show versions in a better format
+                    if "Latest version:" in error_msg:
+                        latest_ver = (
+                            error_msg.split("Latest version:")[1]
+                            .split("\n")[0]
+                            .strip()
+                        )
+                        console.print(
+                            f"Latest version: [green]{latest_ver}[/green]"
+                        )
+                        if "Recent versions:" in error_msg:
+                            versions = error_msg.split("Recent versions:")[
+                                1
+                            ].strip()
+                            console.print(
+                                f"Recent versions: [cyan]{versions}[/cyan]"
+                            )
+                    else:
+                        console.print(error_msg)
+                else:
+                    console.print(
+                        f"[red]{SymbolType.ERROR}[/red] Failed to add [cyan]{pkg}[/cyan]: {error_msg}"
+                    )
+                console.print()
 
     except Exception as e:
         print_error(f"Failed to add packages: {str(e)}")
+        return
 
 
 @click.command()
 @click.argument("packages", nargs=-1, required=True)
-@click.option(
-    "-y",
-    "--yes",
-    is_flag=True,
-    help="Skip confirmation prompt",
-)
-def remove(packages: List[str], yes: bool = False):
+def remove(packages: List[str]):
     """Remove packages from the virtual environment
 
     PACKAGES: One or more package names to remove
@@ -102,15 +145,6 @@ def remove(packages: List[str], yes: bool = False):
             )
             return
 
-        # Confirm removal if not using --yes
-        if not yes:
-            package_list = ", ".join(packages)
-            if not click.confirm(
-                f"Remove {package_list} and their dependencies?",
-                default=False,
-            ):
-                return
-
         with progress_status("Removing packages..."):
             # Remove packages from requirements.txt and uninstall them
             results = manager.remove_packages(packages)
@@ -123,11 +157,28 @@ def remove(packages: List[str], yes: bool = False):
                 console.print(
                     f"[green]{SymbolType.SUCCESS}[/green] Removed [cyan]{pkg}=={info['version']}[/cyan]"
                 )
-                # Show removed dependencies if any
-                if info.get("dependencies"):
-                    console.print("[dim]Removed dependencies:[/dim]")
-                    for dep in sorted(info["dependencies"]):
+
+                # Show dependency information
+                dep_info = info.get("dependency_info", {})
+
+                # Show removed dependencies
+                if "removable_deps" in dep_info:
+                    console.print("[yellow]Removed dependencies:[/yellow]")
+                    for dep in sorted(dep_info["removable_deps"]):
                         console.print(f"[dim]  • {dep}[/dim]")
+
+                # Show kept dependencies
+                if "kept_for" in dep_info:
+                    console.print(
+                        "[yellow]Dependencies kept (used by other packages):[/yellow]"
+                    )
+                    for pkg in sorted(dep_info["kept_for"]):
+                        console.print(f"[dim]  • Required by: {pkg}[/dim]")
+
+            elif info["status"] == "not_found":
+                console.print(
+                    f"[yellow]{SymbolType.WARNING}[/yellow] [cyan]{pkg}[/cyan]: {info['message']}"
+                )
             else:
                 console.print(
                     f"[red]{SymbolType.ERROR}[/red] Failed to remove [cyan]{pkg}[/cyan]: {info.get('message', 'Unknown error')}"
@@ -136,3 +187,4 @@ def remove(packages: List[str], yes: bool = False):
 
     except Exception as e:
         print_error(f"Failed to remove packages: {str(e)}")
+        return
