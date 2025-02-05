@@ -113,20 +113,5 @@ cli.add_command(remove, "rm")
 # cli.add_command(update, "up")
 
 
-def should_show_fix_tip(packages: Union[List[Dict], Dict[str, Dict]]) -> bool:
-    """Check if there are any non-normal package statuses in top-level packages"""
-    if isinstance(packages, dict):
-        return any(
-            pkg.get("status") not in [None, "normal"]
-            for pkg in packages.values()
-            if not pkg.get("is_dependency")
-        )
-    return any(
-        pkg.get("status") not in [None, "normal"]
-        for pkg in packages
-        if not pkg.get("is_dependency")
-    )
-
-
 if __name__ == "__main__":
     cli()
