@@ -12,6 +12,9 @@ from .modern.core.package_analyzer import PackageAnalyzer
 from .modern.commands.env_command import info, activate, deactivate
 from .modern.commands.venv_command import venv
 from .modern.commands.package_command import add, remove
+
+# from .modern.commands.package_command import list, update, fix
+# from .modern.commands.pypi_command import check, search, release
 from .modern.ui.console import (
     create_package_table,
     create_dependency_tree,
@@ -24,20 +27,13 @@ from .modern.ui.console import (
     create_summary_panel,
     create_fix_tip,
 )
-from .modern.ui.style import PanelConfig, StyleType
+from .modern.ui.style import DEFAULT_PANEL, PanelConfig, StyleType
 from typing import Union, List, Dict
 
 console = Console(force_terminal=True, color_system="auto")
 
 # Create package analyzer instance
 pkg_analyzer = PackageAnalyzer()
-
-# Create panel configuration
-HELP_PANEL = PanelConfig(
-    title_align="center",
-    border_style="blue",
-    padding=(0, 2),
-)
 
 
 class ModernGroup(click.Group):
@@ -49,36 +45,32 @@ class ModernGroup(click.Group):
             Panel.fit(
                 "\n".join(
                     [
-                        "",
-                        "",
                         "[bold blue]Environment Management:[/bold blue]",
                         f"  [cyan]info[/cyan]        [dim]Show environment information[/dim]",
-                        f"  [cyan]venv[/cyan]        [dim]Create and activate a virtual environment ([cyan]alias: env[/cyan])[/dim]",
-                        f"  [cyan]activate[/cyan]    [dim]Activate the virtual environment (defaults to current directory's env) ([cyan]alias: on[/cyan])[/dim]",
-                        f"  [cyan]deactivate[/cyan]  [dim]Deactivate the current virtual environment ([cyan]alias: off[/cyan])[/dim]",
+                        f"  [cyan]venv[/cyan]        [dim]Create and activate a virtual environment[/dim] (alias: [cyan]env[/cyan])",
+                        f"  [cyan]activate[/cyan]    [dim]Activate the virtual environment (defaults to current directory's env)[/dim] (alias: [cyan]on[/cyan])",
+                        f"  [cyan]deactivate[/cyan]  [dim]Deactivate the current virtual environment[/dim] (alias: [cyan]off[/cyan])",
                         "",
                         "[bold blue]Package Management:[/bold blue]",
-                        f"  [cyan]list[/cyan]        [dim]List installed packages and their dependencies (-a: all, -t: tree)[/dim]",
+                        f"  [cyan]list[/cyan]        [dim]List installed packages and their dependencies[/dim] ([cyan]-a[/cyan]: all, [cyan]-t[/cyan]: tree)",
                         f"  [cyan]add[/cyan]         [dim]Add packages to requirements.txt and install them[/dim]",
-                        f"  [cyan]remove[/cyan]      [dim]Remove packages from requirements.txt and uninstall them ([cyan]alias: rm[/cyan])[/dim]",
-                        f"  [cyan]update[/cyan]      [dim]Update all packages to their latest versions ([cyan]alias: up[/cyan])[/dim]",
+                        f"  [cyan]remove[/cyan]      [dim]Remove packages from requirements.txt and uninstall them[/dim] (alias: [cyan]rm[/cyan])",
+                        f"  [cyan]update[/cyan]      [dim]Update all packages to their latest versions[/dim] (alias: [cyan]up[/cyan])",
                         f"  [cyan]fix[/cyan]         [dim]Fix package inconsistencies[/dim]",
                         "",
                         "[bold blue]PyPI Integration:[/bold blue]",
                         f"  [cyan]check[/cyan]       [dim]Check package name availability[/dim]",
-                        f"  [cyan]search[/cyan]      [dim]Search for similar package names on PyPI (-t: threshold)[/dim]",
-                        f"  [cyan]release[/cyan]     [dim]Build and publish package to PyPI or Test PyPI (--test: to Test PyPI)[/dim]",
+                        f"  [cyan]search[/cyan]      [dim]Search for similar package names on PyPI[/dim] ([cyan]-t[/cyan]: threshold)",
+                        f"  [cyan]release[/cyan]     [dim]Build and publish package to PyPI or Test PyPI[/dim] ([cyan]--test[/cyan]: to Test PyPI)",
                         "",
                         "[bold blue]Global Options:[/bold blue]",
-                        f"  [cyan]--version[/cyan]   [dim]Show version number ([cyan]alias: -V, -v[/cyan])[/dim]",
-                        "",
-                        "",
+                        f"  [cyan]--version[/cyan]   [dim]Show version number[/dim] ([cyan]alias: -V, -v[/cyan])",
                     ]
                 ),
                 title="PyMin - CLI tool for PyPI package management",
-                title_align=HELP_PANEL.title_align,
-                border_style=HELP_PANEL.border_style,
-                padding=HELP_PANEL.padding,
+                title_align=DEFAULT_PANEL.title_align,
+                border_style=DEFAULT_PANEL.border_style,
+                padding=(2, 2),
             )
         )
 
@@ -108,12 +100,21 @@ cli.add_command(venv)
 # Register package management commands
 cli.add_command(add)
 cli.add_command(remove)
+# cli.add_command(list)
+# cli.add_command(update)
+# cli.add_command(fix)
+
+# Register PyPI integration commands
+# cli.add_command(check)
+# cli.add_command(search)
+# cli.add_command(release)
 
 # Register command aliases
 cli.add_command(activate, "on")
 cli.add_command(deactivate, "off")
 cli.add_command(venv, "env")
 cli.add_command(remove, "rm")
+# cli.add_command(update, "up")
 
 
 def should_show_fix_tip(packages: Union[List[Dict], Dict[str, Dict]]) -> bool:
