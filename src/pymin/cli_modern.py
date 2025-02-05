@@ -11,11 +11,8 @@ import sys
 from .modern.core.package_analyzer import PackageAnalyzer
 from .modern.commands.env_command import info, activate, deactivate
 from .modern.commands.venv_command import venv
-from .modern.commands.package_command import add, remove
+from .modern.commands.package_command import add, remove, list
 from .modern.commands.pypi_command import check, search, release
-
-# from .modern.commands.package_command import list, update, fix
-# from .modern.commands.pypi_command import check, search, release
 from .modern.ui.console import (
     create_package_table,
     create_dependency_tree,
@@ -101,9 +98,7 @@ cli.add_command(venv)
 # Register package management commands
 cli.add_command(add)
 cli.add_command(remove)
-# cli.add_command(list)
-# cli.add_command(update)
-# cli.add_command(fix)
+cli.add_command(list)
 
 # Register PyPI integration commands
 cli.add_command(check)
@@ -131,118 +126,6 @@ def should_show_fix_tip(packages: Union[List[Dict], Dict[str, Dict]]) -> bool:
         for pkg in packages
         if not pkg.get("is_dependency")
     )
-
-
-@cli.command()
-@click.option(
-    "-a", "--all", "show_all", is_flag=True, help="Show all installed packages"
-)
-@click.option(
-    "-t", "--tree", "show_tree", is_flag=True, help="Show dependency tree"
-)
-def list(show_all: bool, show_tree: bool):
-    """List installed packages"""
-    try:
-        if show_tree:
-            # Get dependency tree
-            packages = pkg_analyzer.get_dependency_tree()
-            if not packages:
-                print_warning("No installed packages found")
-                return
-
-            # Create and display dependency tree
-            tree_table = create_dependency_tree(packages)
-            print_table(tree_table)
-
-            # Display summary
-            summary_content = create_package_summary(
-                packages, mode="dependency_tree"
-            )
-            console.print(
-                create_summary_panel("Package Summary", summary_content)
-            )
-
-            # Show fix tip if needed
-            if should_show_fix_tip(packages):
-                console.print()
-                create_fix_tip()
-
-        else:
-            # Get package data
-            if show_all:
-                packages = pkg_analyzer.get_installed_packages()
-                title = "All Installed Packages"
-                mode = "all_installed"
-                # Get top level packages for dimming check
-                top_level_packages = pkg_analyzer.get_top_level_packages()
-            else:
-                packages = pkg_analyzer.get_top_level_packages()
-                title = "Top Level Packages"
-                mode = "top_level"
-
-            if not packages:
-                print_warning("No installed packages found")
-                return
-
-            # Get all dependencies for redundancy check
-            all_packages = pkg_analyzer.get_installed_packages()
-            all_dependencies = set()
-            requirements = pkg_analyzer._parse_requirements()
-            for pkg_info in all_packages.values():
-                deps = pkg_info.get("dependencies", [])
-                all_dependencies.update(deps)
-
-            # Convert package data to table rows
-            rows = []
-            for name, data in sorted(packages.items()):
-                # Handle both dictionary and string (version) formats
-                if isinstance(data, dict):
-                    package_data = data
-                else:
-                    package_data = {
-                        "name": name,
-                        "installed_version": data,
-                        "required_version": "",
-                    }
-
-                # Check if package is redundant (in requirements.txt and is a dependency)
-                if name in requirements and name in all_dependencies:
-                    package_data["redundant"] = True
-                    package_data["status"] = "redundant"
-                # Check if package is missing (in requirements.txt but not installed)
-                elif name in requirements and not package_data.get(
-                    "installed_version"
-                ):
-                    package_data["status"] = "missing"
-
-                # Mark if package is not top-level (for dimming in display)
-                if show_all and name not in top_level_packages:
-                    package_data["is_dependency"] = True
-
-                rows.append([package_data])
-
-            # Create and display table
-            table = create_package_table(
-                title,
-                ["Package Name", "Required", "Installed", "Status"],
-                rows,
-            )
-            print_table(table)
-
-            # Display summary
-            summary_content = create_package_summary(packages, mode=mode)
-            console.print(
-                create_summary_panel("Package Summary", summary_content)
-            )
-            console.print("\n")
-
-            # Show fix tip if needed
-            if should_show_fix_tip(packages):
-                create_fix_tip()
-
-    except Exception as e:
-        print_error(f"Error: {str(e)}")
-        return
 
 
 if __name__ == "__main__":
