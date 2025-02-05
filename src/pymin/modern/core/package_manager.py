@@ -493,6 +493,15 @@ class PackageManager:
 
             # Add packages
             if added:
+                # First remove any existing versions of the packages we're adding
+                for pkg_spec in added:
+                    pkg_name = pkg_spec.split("==")[0]
+                    requirements = [
+                        r
+                        for r in requirements
+                        if not r.startswith(f"{pkg_name}==")
+                    ]
+                # Then add the new versions
                 requirements.extend(added)
 
             # Write back
