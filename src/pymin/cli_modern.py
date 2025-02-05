@@ -24,6 +24,7 @@ from .modern.ui.console import (
     create_summary_panel,
     create_fix_tip,
 )
+from .modern.ui.style import PanelConfig, StyleType
 from typing import Union, List, Dict
 
 console = Console(force_terminal=True, color_system="auto")
@@ -31,46 +32,55 @@ console = Console(force_terminal=True, color_system="auto")
 # Create package analyzer instance
 pkg_analyzer = PackageAnalyzer()
 
-
-def format_help_message(self, ctx, formatter):
-    """Format help message with modern styling"""
-    console.print(
-        Panel(
-            "\n".join(
-                [
-                    "",
-                    "",
-                    "[bold blue]Environment Management:[/bold blue]",
-                    "  info        Show environment information",
-                    "  venv        Create and activate a virtual environment (alias: env)",
-                    "  activate    Activate the virtual environment (defaults to current directory's env) (alias: on)",
-                    "  deactivate  Deactivate the current virtual environment (alias: off)",
-                    "",
-                    "[bold blue]Package Management:[/bold blue]",
-                    "  list        List installed packages and their dependencies (-a: all, -t: tree)",
-                    "  add         Add packages to requirements.txt and install them",
-                    "  remove      Remove packages from requirements.txt and uninstall them (alias: rm)",
-                    "  update      Update all packages to their latest versions (alias: up)",
-                    "  fix         Fix package inconsistencies",
-                    "",
-                    "[bold blue]Global Options:[/bold blue]",
-                    "  --version   Show version number (alias: -V, -v)",
-                    "",
-                    "",
-                ]
-            ),
-            title="PyMin Modern - Modern PyPI Package Management Tool",
-            expand=True,
-            padding=(0, 2),
-        )
-    )
+# Create panel configuration
+HELP_PANEL = PanelConfig(
+    title_align="center",
+    border_style="blue",
+    padding=(0, 2),
+)
 
 
 class ModernGroup(click.Group):
     """Modern command group with custom help formatting"""
 
     def format_help(self, ctx, formatter):
-        self.format_commands(ctx, formatter)
+        """Format help message with modern styling"""
+        console.print(
+            Panel.fit(
+                "\n".join(
+                    [
+                        "",
+                        "",
+                        "[bold blue]Environment Management:[/bold blue]",
+                        f"  [cyan]info[/cyan]        [dim]Show environment information[/dim]",
+                        f"  [cyan]venv[/cyan]        [dim]Create and activate a virtual environment ([cyan]alias: env[/cyan])[/dim]",
+                        f"  [cyan]activate[/cyan]    [dim]Activate the virtual environment (defaults to current directory's env) ([cyan]alias: on[/cyan])[/dim]",
+                        f"  [cyan]deactivate[/cyan]  [dim]Deactivate the current virtual environment ([cyan]alias: off[/cyan])[/dim]",
+                        "",
+                        "[bold blue]Package Management:[/bold blue]",
+                        f"  [cyan]list[/cyan]        [dim]List installed packages and their dependencies (-a: all, -t: tree)[/dim]",
+                        f"  [cyan]add[/cyan]         [dim]Add packages to requirements.txt and install them[/dim]",
+                        f"  [cyan]remove[/cyan]      [dim]Remove packages from requirements.txt and uninstall them ([cyan]alias: rm[/cyan])[/dim]",
+                        f"  [cyan]update[/cyan]      [dim]Update all packages to their latest versions ([cyan]alias: up[/cyan])[/dim]",
+                        f"  [cyan]fix[/cyan]         [dim]Fix package inconsistencies[/dim]",
+                        "",
+                        "[bold blue]PyPI Integration:[/bold blue]",
+                        f"  [cyan]check[/cyan]       [dim]Check package name availability[/dim]",
+                        f"  [cyan]search[/cyan]      [dim]Search for similar package names on PyPI (-t: threshold)[/dim]",
+                        f"  [cyan]release[/cyan]     [dim]Build and publish package to PyPI or Test PyPI (--test: to Test PyPI)[/dim]",
+                        "",
+                        "[bold blue]Global Options:[/bold blue]",
+                        f"  [cyan]--version[/cyan]   [dim]Show version number ([cyan]alias: -V, -v[/cyan])[/dim]",
+                        "",
+                        "",
+                    ]
+                ),
+                title="PyMin - CLI tool for PyPI package management",
+                title_align=HELP_PANEL.title_align,
+                border_style=HELP_PANEL.border_style,
+                padding=HELP_PANEL.padding,
+            )
+        )
 
 
 @click.group(cls=ModernGroup)
@@ -88,8 +98,6 @@ def cli(version: bool = False):
     """PyMin Modern - Modern PyPI Package Management Tool"""
     pass
 
-
-cli.format_commands = format_help_message
 
 # Register environment commands
 cli.add_command(info)
