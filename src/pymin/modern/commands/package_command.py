@@ -81,14 +81,12 @@ def add(
                     # Format dependencies with versions
                     if dep_versions:
                         deps_str = ", ".join(
-                            (
-                                f"{dep}=={version}"  # 新安裝的套件保持原色
-                                if dep in info.get("new_dependencies", [])
-                                else f"[white dim]{dep}=={version}[/white dim]"  # 已安裝的套件使用白色 dim
-                            )
+                            f"[cyan]{dep}=={version}[/cyan]"
                             for dep, version in sorted(dep_versions.items())
                         )
-                        console.print(f"Dependencies:  {deps_str}")
+                        console.print(
+                            f"[dim]Installed dependencies:  {deps_str}[/dim]"
+                        )
                 console.print()  # Add a blank line between packages
             else:
                 error_msg = info.get("message", "Unknown error")
@@ -151,8 +149,15 @@ def remove(packages: List[str]):
 
         # Display results
         console.print()
-        for pkg, info in results.items():
-            # Show main package result
+
+        # Track dependencies that have been shown
+        shown_deps = set()
+
+        for pkg in packages:  # 只顯示主要請求移除的套件
+            if pkg not in results:
+                continue
+
+            info = results[pkg]
             if info["status"] == "removed":
                 console.print(
                     f"[green]{SymbolType.SUCCESS}[/green] Removed [cyan]{pkg}=={info['version']}[/cyan]"
@@ -161,29 +166,76 @@ def remove(packages: List[str]):
                 # Show dependency information
                 dep_info = info.get("dependency_info", {})
 
-                # Show removed dependencies
+                # 已移除的依賴
                 if "removable_deps" in dep_info:
-                    console.print("[yellow]Removed dependencies:[/yellow]")
-                    for dep in sorted(dep_info["removable_deps"]):
-                        console.print(f"[dim]  • {dep}[/dim]")
+                    removable_deps = sorted(dep_info["removable_deps"])
+                    if removable_deps:
+                        # 取得被移除依賴的版本
+                        deps_with_versions = []
+                        for dep in removable_deps:
+                            version = (
+                                manager.package_manager._get_installed_version(
+                                    dep
+                                )
+                            )
+                            deps_with_versions.append(
+                                f"[cyan]{dep}=={version}[/cyan]"
+                            )
+                        console.print(
+                            f"[dim]Removed dependencies:  {', '.join(deps_with_versions)}[/dim]"
+                        )
 
-                # Show kept dependencies
-                if "kept_for" in dep_info:
-                    console.print(
-                        "[yellow]Dependencies kept (used by other packages):[/yellow]"
-                    )
-                    for pkg in sorted(dep_info["kept_for"]):
-                        console.print(f"[dim]  • Required by: {pkg}[/dim]")
+                # 被保留的依賴
+                if "kept_deps" in dep_info:
+                    kept_deps = sorted(dep_info["kept_deps"])
+                    if kept_deps:
+                        deps_with_versions = []
+                        for dep in kept_deps:
+                            version = (
+                                manager.package_manager._get_installed_version(
+                                    dep
+                                )
+                            )
+                            # 從 dep_info 中取得 kept_for 資訊
+                            kept_for = dep_info.get(dep, {}).get("kept_for", [])
+                            if kept_for:
+                                dependents = sorted(kept_for)
+                                deps_with_versions.append(
+                                    f"[cyan]{dep}=={version}[/cyan] (required by: {', '.join(dependents)})"
+                                )
+                            else:
+                                # 如果沒有 kept_for 資訊，可能需要重新檢查依賴關係
+                                all_deps = (
+                                    manager.package_manager._get_all_dependencies()
+                                )
+                                other_dependents = sorted(
+                                    all_deps.get(dep, set())
+                                )
+                                if other_dependents:
+                                    deps_with_versions.append(
+                                        f"[cyan]{dep}=={version}[/cyan] (required by: {', '.join(other_dependents)})"
+                                    )
+                                else:
+                                    deps_with_versions.append(
+                                        f"[cyan]{dep}=={version}[/cyan]"
+                                    )
+                        if deps_with_versions:
+                            console.print(
+                                f"[dim]Kept dependencies:  {', '.join(deps_with_versions)}[/dim]"
+                            )
+
+                console.print()  # Add a blank line after each main package
 
             elif info["status"] == "not_found":
                 console.print(
                     f"[yellow]{SymbolType.WARNING}[/yellow] [cyan]{pkg}[/cyan]: {info['message']}"
                 )
+                console.print()
             else:
                 console.print(
                     f"[red]{SymbolType.ERROR}[/red] Failed to remove [cyan]{pkg}[/cyan]: {info.get('message', 'Unknown error')}"
                 )
-            console.print()
+                console.print()
 
     except Exception as e:
         print_error(f"Failed to remove packages: {str(e)}")

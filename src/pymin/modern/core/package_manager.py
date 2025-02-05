@@ -268,14 +268,12 @@ class PackageManager:
 
         # Get package information from analyzer
         installed_packages = self.package_analyzer.get_installed_packages()
-        print("Debug: Installed packages:", list(installed_packages.keys()))
 
         # Create a case-insensitive lookup dictionary using normalized names
         pkg_case_map = {
             self.package_analyzer._normalize_package_name(pkg): pkg
             for pkg in installed_packages.keys()
         }
-        print("Debug: Package case map:", pkg_case_map)
 
         # Get all dependencies
         all_dependencies = self._get_all_dependencies()
@@ -286,12 +284,9 @@ class PackageManager:
         for pkg in packages:
             # Normalize the package name
             pkg_normalized = self.package_analyzer._normalize_package_name(pkg)
-            print(f"Debug: Looking for normalized name: {pkg_normalized}")
-            print(f"Debug: Original package name: {pkg}")
 
             # Try to find the actual package name with correct case
             actual_pkg_name = pkg_case_map.get(pkg_normalized)
-            print(f"Debug: Found actual package name: {actual_pkg_name}")
 
             if not actual_pkg_name:
                 results[pkg] = {
@@ -307,6 +302,7 @@ class PackageManager:
             pkg_info = installed_packages[actual_pkg_name]
             pkg_deps = pkg_info.get("dependencies", [])
             removable_deps = set()
+            kept_deps = set()
 
             # For each dependency
             for dep in pkg_deps:
@@ -319,17 +315,22 @@ class PackageManager:
                     if not other_dependents:
                         removable_deps.add(dep)
                     else:
+                        kept_deps.add(dep)
                         if dep not in dependency_info:
                             dependency_info[dep] = {
                                 "kept_for": list(other_dependents)
                             }
 
-            # Store removable dependencies
-            if removable_deps:
-                packages_to_remove.update(removable_deps)
-                dependency_info[actual_pkg_name] = {
-                    "removable_deps": list(removable_deps)
-                }
+            # Store dependency information
+            dependency_info[actual_pkg_name] = {
+                "removable_deps": list(removable_deps),
+                "kept_deps": list(kept_deps),
+                **{
+                    dep: dependency_info[dep]
+                    for dep in kept_deps
+                    if dep in dependency_info
+                },
+            }
 
         # 2. Remove packages
         for pkg in packages_to_remove:
