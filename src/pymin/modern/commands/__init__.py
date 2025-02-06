@@ -1,8 +1,24 @@
-"""Command implementations for the modern CLI interface"""
+"""Command modules for the modern CLI"""
 
-from .env_command import info, activate, deactivate
-from .venv_command import venv
-from .package_command import add, remove
+from .venv.info_command import info
+from .venv.activate_command import activate
+from .venv.deactivate_command import deactivate
+from .venv.venv_command import venv
+from .package import add, remove, list, update
+from .pypi.check_command import check
+from .pypi.search_command import search
+from .pypi.release_command import release
 
-# Aliases
-env = venv  # Alias for venv command
+__all__ = [
+    "info",
+    "activate",
+    "deactivate",
+    "venv",
+    "add",
+    "remove",
+    "list",
+    "update",
+    "check",
+    "search",
+    "release",
+]

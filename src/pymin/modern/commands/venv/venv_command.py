@@ -1,18 +1,18 @@
-"""Virtual environment creation command implementation"""
+"""Virtual environment creation command"""
 
 import click
 from pathlib import Path
 from rich.panel import Panel
 from rich.text import Text
-from ..core.venv_manager import VenvManager
-from ..ui.console import (
+from ...core.venv_manager import VenvManager
+from ...ui.console import (
     print_success,
     print_error,
     print_warning,
     progress_status,
     console,
 )
-from ..ui.style import StyleType, SymbolType
+from ...ui.style import StyleType, SymbolType
 
 
 @click.command()

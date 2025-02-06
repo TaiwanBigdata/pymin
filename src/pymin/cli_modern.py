@@ -9,10 +9,14 @@ from pathlib import Path
 import os
 import sys
 from .modern.core.package_analyzer import PackageAnalyzer
-from .modern.commands.env_command import info, activate, deactivate
-from .modern.commands.venv_command import venv
-from .modern.commands.package_command import add, remove, list
-from .modern.commands.pypi_command import check, search, release
+from .modern.commands.venv.info_command import info
+from .modern.commands.venv.activate_command import activate
+from .modern.commands.venv.deactivate_command import deactivate
+from .modern.commands.venv.venv_command import venv
+from .modern.commands.package import add, remove, list, update
+from .modern.commands.pypi.check_command import check
+from .modern.commands.pypi.search_command import search
+from .modern.commands.pypi.release_command import release
 from .modern.ui.console import (
     create_package_table,
     create_dependency_tree,
@@ -53,7 +57,7 @@ class ModernGroup(click.Group):
                         f"  [cyan]list[/cyan]        [dim]List installed packages and their dependencies[/dim] ([cyan]-a[/cyan]: all, [cyan]-t[/cyan]: tree)",
                         f"  [cyan]add[/cyan]         [dim]Add packages to requirements.txt and install them[/dim]",
                         f"  [cyan]remove[/cyan]      [dim]Remove packages from requirements.txt and uninstall them[/dim] (alias: [cyan]rm[/cyan])",
-                        f"  [cyan]update[/cyan]      [dim]Update all packages to their latest versions[/dim] (alias: [cyan]up[/cyan])",
+                        f"  [cyan]update[/cyan]      [dim]Update packages to their latest versions[/dim] ([cyan]-a[/cyan]: all, [cyan]--check[/cyan]: check only) (alias: [cyan]up[/cyan])",
                         f"  [cyan]fix[/cyan]         [dim]Fix package inconsistencies[/dim]",
                         "",
                         "[bold blue]PyPI Integration:[/bold blue]",
@@ -73,7 +77,7 @@ class ModernGroup(click.Group):
         )
 
 
-@click.group(cls=ModernGroup)
+@click.group(cls=ModernGroup, chain=True)
 @click.option(
     "--version",
     "-v",
@@ -99,6 +103,7 @@ cli.add_command(venv)
 cli.add_command(add)
 cli.add_command(remove)
 cli.add_command(list)
+cli.add_command(update)
 
 # Register PyPI integration commands
 cli.add_command(check)
@@ -106,11 +111,11 @@ cli.add_command(search)
 cli.add_command(release)
 
 # Register command aliases
-cli.add_command(activate, "on")
-cli.add_command(deactivate, "off")
-cli.add_command(venv, "env")
-cli.add_command(remove, "rm")
-# cli.add_command(update, "up")
+cli.add_command(activate, name="on")
+cli.add_command(deactivate, name="off")
+cli.add_command(venv, name="env")
+cli.add_command(remove, name="rm")
+cli.add_command(update, name="up")
 
 
 if __name__ == "__main__":

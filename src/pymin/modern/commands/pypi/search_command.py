@@ -1,27 +1,10 @@
-"""PyPI integration commands"""
+"""Package name similarity search command"""
 
 import click
-from typing import Optional
-from ..core.check import PackageNameChecker
-from ..core.search import PackageSearcher
-from ..core.release import PackageReleaser
-from ..ui.console import print_error, print_warning, print_success, console
+from ...core.search import PackageSearcher
+from ...ui.console import print_error, print_warning, console
 from rich.table import Table
 from rich.text import Text
-from rich.panel import Panel
-
-
-@click.command()
-@click.argument("name")
-def check(name):
-    """Check package name availability"""
-    try:
-        checker = PackageNameChecker()
-        result = checker.check_availability(name)
-        checker.display_result(result)
-    except Exception as e:
-        print_error(f"Failed to check package name: {str(e)}")
-        return
 
 
 @click.command()
@@ -72,20 +55,4 @@ def search(name: str, threshold: float):
         )
     except Exception as e:
         print_error(f"Failed to search for similar packages: {str(e)}")
-        return
-
-
-@click.command()
-@click.option(
-    "--test",
-    is_flag=True,
-    help="Publish to Test PyPI instead of PyPI",
-)
-def release(test: bool):
-    """Build and publish package to PyPI or Test PyPI"""
-    try:
-        releaser = PackageReleaser()
-        releaser.release(test=test)
-    except Exception as e:
-        print_error(f"Failed to release package: {str(e)}")
         return
