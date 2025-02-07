@@ -276,9 +276,6 @@ class PackageManager:
                                 )
                                 for v in reversed(latest_versions)
                             )
-                            console.print(
-                                f"[yellow]Latest versions:[/yellow] {latest_ver_list}"
-                            )
 
                             # Show similar versions in one line
                             similar_ver_list = ", ".join(
@@ -290,14 +287,12 @@ class PackageManager:
                                 )
                                 for v in close_versions
                             )
-                            console.print(
-                                f"[yellow]Similar versions:[/yellow] {similar_ver_list}"
-                            )
 
-                            # Show error message
-                            console.print(
-                                f"\n[red]✗ Failed to add {pkg_name}:[/red] Version [cyan]{pkg_version}[/cyan] not found"
-                            )
+                            # Store version information for later use
+                            version_info = {
+                                "latest_versions": latest_ver_list,
+                                "similar_versions": similar_ver_list,
+                            }
 
                             # Show pip upgrade notice if needed
                             if (
@@ -315,14 +310,12 @@ class PackageManager:
                                         "[dim]Run: pip install --upgrade pip[/dim]"
                                     )
 
-                            # Show installation tip
-                            console.print(
-                                f"\n[dim]Tip: Try [cyan]pmm add {pkg_name}=={latest_versions[-1]}[/cyan] to install the latest version[/dim]"
-                            )
-
                     results[pkg_name] = {
                         "status": "error",
                         "message": "Version not found",
+                        "version_info": (
+                            version_info if "version_info" in locals() else None
+                        ),
                     }
 
             except subprocess.CalledProcessError as e:

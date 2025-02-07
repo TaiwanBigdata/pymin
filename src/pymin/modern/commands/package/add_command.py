@@ -66,11 +66,15 @@ def add(
 
         # Display results
         console.print()
+
+        # 儲存所有需要顯示的 tips
+        installation_tips = []
+
+        # 按照安裝順序顯示結果
         for pkg, info in results.items():
-            # Show main package result
             if info["status"] == "installed":
                 console.print(
-                    f"[green]{SymbolType.SUCCESS}[/green] Added [cyan]{pkg}=={info['version']}[/cyan]"
+                    f"[bold][green]{SymbolType.SUCCESS}[/green] Added [cyan]{pkg}=={info['version']}[/cyan][/bold]"
                 )
                 # Show dependencies if any
                 if info.get("new_dependencies") or info.get(
@@ -96,39 +100,48 @@ def add(
                         console.print(
                             f"[dim]Installed dependencies:  {deps_str}[/dim]"
                         )
-                console.print()  # Add a blank line between packages
             else:
                 error_msg = info.get("message", "Unknown error")
+                version_info = info.get("version_info", {})
 
                 # Check if it's a version-related error
-                if "Version not found" in error_msg:
+                if "Version not found" in error_msg and version_info:
                     console.print(
                         f"[red]{SymbolType.ERROR}[/red] Failed to add [cyan]{pkg}[/cyan]"
                     )
-                    # Split the message to show versions in a better format
-                    if "Latest version:" in error_msg:
-                        latest_ver = (
-                            error_msg.split("Latest version:")[1]
-                            .split("\n")[0]
-                            .strip()
-                        )
-                        console.print(
-                            f"Latest version: [green]{latest_ver}[/green]"
-                        )
-                        if "Recent versions:" in error_msg:
-                            versions = error_msg.split("Recent versions:")[
-                                1
-                            ].strip()
-                            console.print(
-                                f"Recent versions: [cyan]{versions}[/cyan]"
-                            )
-                    else:
-                        console.print(error_msg)
+                    console.print(
+                        f"[dim][yellow]Latest versions:[/yellow] {version_info['latest_versions']}[/dim]"
+                    )
+                    console.print(
+                        f"[dim][yellow]Similar versions:[/yellow] {version_info['similar_versions']}[/dim]"
+                    )
+
+                    # Store installation tip for later
+                    latest_version = (
+                        version_info["latest_versions"]
+                        .split(",")[0]
+                        .strip()
+                        .replace("[cyan]", "")
+                        .replace("[/cyan]", "")
+                        .replace(" (latest)", "")
+                    )
+                    installation_tips.append(
+                        f"• [cyan]pmm add {pkg}=={latest_version}[/cyan]"
+                    )
                 else:
                     console.print(
                         f"[red]{SymbolType.ERROR}[/red] Failed to add [cyan]{pkg}[/cyan]: {error_msg}"
                     )
-                console.print()
+            console.print()  # Add a blank line between packages
+
+        # 最後顯示所有安裝建議
+        if installation_tips:
+            console.print()  # Add an extra blank line before tips
+            console.print(
+                "[dim]Tips: Try these commands to install the latest versions:[/dim]"
+            )
+            for tip in installation_tips:
+                console.print(f"[dim]  {tip}[/dim]")
 
     except Exception as e:
         print_error(f"Failed to add packages: {str(e)}")
