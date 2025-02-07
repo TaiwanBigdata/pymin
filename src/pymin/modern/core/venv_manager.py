@@ -220,7 +220,7 @@ class VenvManager:
 
     def has_venv(self, venv_path: Path) -> bool:
         """Check if a valid virtual environment exists at the given path"""
-        return self.analyzer._is_valid_venv(venv_path)
+        return self.analyzer.is_valid_venv(venv_path)
 
     def create_environment(
         self, venv_path: Path, rebuild: bool = False

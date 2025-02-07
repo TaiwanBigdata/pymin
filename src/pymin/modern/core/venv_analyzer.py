@@ -48,7 +48,7 @@ class VenvAnalyzer:
         """
         for venv_name in self.VENV_DIRS:
             venv_path = self.project_path / venv_name
-            if self._is_valid_venv(venv_path):
+            if self.is_valid_venv(venv_path):
                 return venv_path
 
         raise VenvNotFoundError(
@@ -56,7 +56,7 @@ class VenvAnalyzer:
             "Expected one of these directories: " + ", ".join(self.VENV_DIRS)
         )
 
-    def _is_valid_venv(self, path: pathlib.Path) -> bool:
+    def is_valid_venv(self, path: pathlib.Path) -> bool:
         """
         Check if path contains a valid virtual environment
 
@@ -204,7 +204,7 @@ class VenvAnalyzer:
 
         for venv_name in self.VENV_DIRS:
             venv_path = check_path / venv_name
-            if self._is_valid_venv(venv_path):
+            if self.is_valid_venv(venv_path):
                 return True
         return False
 
