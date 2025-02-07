@@ -54,7 +54,7 @@ class ModernGroup(click.Group):
                         f"  [cyan]deactivate[/cyan]  [dim]Deactivate the current virtual environment[/dim] (alias: [cyan]off[/cyan])",
                         "",
                         "[bold blue]Package Management:[/bold blue]",
-                        f"  [cyan]list[/cyan]        [dim]List installed packages and their dependencies[/dim] ([cyan]-a[/cyan]: all, [cyan]-t[/cyan]: tree)",
+                        f"  [cyan]list[/cyan]        [dim]List installed packages and their dependencies[/dim] ([cyan]-a[/cyan]: all, [cyan]-t[/cyan]: tree) (alias: [cyan]ls[/cyan])",
                         f"  [cyan]add[/cyan]         [dim]Add packages to requirements.txt and install them[/dim]",
                         f"  [cyan]remove[/cyan]      [dim]Remove packages from requirements.txt and uninstall them[/dim] (alias: [cyan]rm[/cyan])",
                         f"  [cyan]update[/cyan]      [dim]Update packages to their latest versions[/dim] ([cyan]-a[/cyan]: all, [cyan]--check[/cyan]: check only) (alias: [cyan]up[/cyan])",
@@ -114,6 +114,7 @@ cli.add_command(release)
 cli.add_command(activate, name="on")
 cli.add_command(deactivate, name="off")
 cli.add_command(venv, name="env")
+cli.add_command(list, name="ls")
 cli.add_command(remove, name="rm")
 cli.add_command(update, name="up")
 
