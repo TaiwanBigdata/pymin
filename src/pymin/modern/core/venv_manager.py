@@ -261,7 +261,7 @@ class VenvManager:
         return env_info
 
     def install_requirements(self, venv_path: Path) -> None:
-        """Install requirements from requirements.txt
+        """Install requirements from requirements.txt using PackageManager
 
         Args:
             venv_path: Path to the virtual environment
@@ -270,26 +270,35 @@ class VenvManager:
         if not requirements_file.exists():
             return
 
-        # Get pip path
-        if sys.platform == "win32":
-            pip_path = venv_path / "Scripts" / "pip"
-        else:
-            pip_path = venv_path / "bin" / "pip"
+        try:
+            # Create a temporary package manager for this venv
+            temp_package_manager = PackageManager(venv_path)
 
-        if not pip_path.exists():
-            raise FileNotFoundError(f"Pip not found at {pip_path}")
+            # Read requirements file
+            with open(requirements_file, "r") as f:
+                requirements = [
+                    line.strip()
+                    for line in f.readlines()
+                    if line.strip() and not line.startswith("#")
+                ]
 
-        # Install requirements
-        result = subprocess.run(
-            [str(pip_path), "install", "-r", str(requirements_file)],
-            capture_output=True,
-            text=True,
-        )
+            if not requirements:
+                return
 
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"Failed to install requirements: {result.stderr}"
+            # Install packages using package manager
+            temp_package_manager.add_packages(
+                packages=requirements,
+                dev=False,  # Regular dependencies by default
+                editable=False,  # Regular install by default
+                no_deps=False,  # Install dependencies by default
             )
+
+            # Clear package analyzer cache after installation
+            if hasattr(self, "package_analyzer"):
+                self.package_analyzer.clear_cache()
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to install requirements: {str(e)}")
 
     def add_packages(
         self,
