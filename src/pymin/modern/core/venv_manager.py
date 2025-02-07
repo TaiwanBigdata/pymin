@@ -101,13 +101,16 @@ class VenvManager:
         Returns:
             Tuple of (shell, shell_name, shell_command)
         """
-        # Check if we're in a virtual environment
-        if not self.from_env:
+        # Check if VIRTUAL_ENV environment variable exists
+        if "VIRTUAL_ENV" not in os.environ:
             print_warning("No virtual environment is currently active")
             return None, None, None
 
+        # Proceed with deactivation even if the environment directory has been deleted
+        env_path = Path(os.environ["VIRTUAL_ENV"])
+
         # Show environment change message
-        print_success(format_env_switch(self.from_env, None))
+        print_success(format_env_switch(env_path, None))
 
         # Get shell information
         shell, shell_name = self._get_shell()
@@ -115,7 +118,7 @@ class VenvManager:
         # Get shell-specific commands
         env_vars, ps1_cmd = self._get_shell_commands(
             action="deactivate",
-            env_path=self.from_env,
+            env_path=env_path,
             shell_name=shell_name,
         )
 
