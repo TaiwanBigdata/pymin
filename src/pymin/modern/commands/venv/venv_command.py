@@ -4,6 +4,7 @@ import click
 from pathlib import Path
 from rich.panel import Panel
 from rich.text import Text
+from rich.prompt import Confirm
 from ...core.venv_manager import VenvManager
 from ...ui.console import (
     print_success,
@@ -12,7 +13,7 @@ from ...ui.console import (
     progress_status,
     console,
 )
-from ...ui.style import StyleType, SymbolType
+from ...ui.style import StyleType, SymbolType, DEFAULT_PANEL
 
 
 @click.command()
@@ -29,46 +30,47 @@ def venv(name: str = None, yes: bool = False, rebuild: bool = False):
 
     If NAME is not provided, it defaults to 'env' in the current directory.
     """
-    venv_path = Path(name or "env")
-
-    # Check if environment exists
-    if venv_path.exists():
-        if not rebuild:
-            if not yes and not click.confirm(
-                f"\nEnvironment {venv_path} already exists. Rebuild?",
-                default=False,
-            ):
-                return
-            rebuild = True
-
     try:
+        manager = VenvManager()
+        venv_path = Path(name or "env")
+
+        # Check if environment exists
+        if venv_path.exists():
+            if not rebuild:
+                if not yes and not Confirm.ask(
+                    f"\nEnvironment {venv_path} already exists. Rebuild?",
+                    default=False,
+                ):
+                    return
+                rebuild = True
+
+        # Create environment
         with progress_status("Creating virtual environment..."):
-            manager = VenvManager()
             env_info = manager.create_environment(venv_path, rebuild=rebuild)
 
         # Display environment information in a panel
         text = Text()
         text.append("Virtual Environment: ", style=StyleType.ENV_FIELD_NAME)
         text.append(
-            f"{env_info['project_name']}",
+            f"{env_info['project']['name']}",
             style=StyleType.ENV_PROJECT_NAME,
         )
         text.append(
-            f"({env_info['env_name']})",
+            f"({venv_path.name})",
             style=StyleType.ENV_VENV_NAME,
         )
         text.append("\n")
 
         text.append("Python Version: ", style=StyleType.ENV_FIELD_NAME)
         text.append(
-            env_info["python"]["version"] or "Unknown",
+            env_info["system"]["python"]["version"] or "Unknown",
             style=StyleType.ENV_VERSION,
         )
         text.append("\n")
 
         text.append("Pip Version: ", style=StyleType.ENV_FIELD_NAME)
         text.append(
-            env_info["pip"]["version"] or "Unknown",
+            env_info["system"]["pip"]["version"] or "Unknown",
             style=StyleType.ENV_VERSION,
         )
         text.append("\n")
@@ -84,12 +86,12 @@ def venv(name: str = None, yes: bool = False, rebuild: bool = False):
         )
 
         console.print(
-            Panel(
+            Panel.fit(
                 text,
                 title="Environment Created",
-                title_align="left",
-                border_style=StyleType.SUCCESS,
-                padding=(1, 2),
+                title_align=DEFAULT_PANEL.title_align,
+                border_style=DEFAULT_PANEL.border_style,
+                padding=DEFAULT_PANEL.padding,
             )
         )
 
@@ -105,3 +107,4 @@ def venv(name: str = None, yes: bool = False, rebuild: bool = False):
 
     except Exception as e:
         print_error(f"Failed to create environment: {str(e)}")
+        return

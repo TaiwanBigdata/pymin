@@ -218,6 +218,10 @@ class VenvManager:
         except Exception:
             return None
 
+    def has_venv(self, venv_path: Path) -> bool:
+        """Check if a valid virtual environment exists at the given path"""
+        return self.analyzer._is_valid_venv(venv_path)
+
     def create_environment(
         self, venv_path: Path, rebuild: bool = False
     ) -> Dict[str, Any]:
@@ -242,11 +246,15 @@ class VenvManager:
         # Create the environment
         venv.create(venv_path, with_pip=True)
 
-        # Get environment information
-        env_info = self.analyzer.get_venv_info()
-        if not env_info["has_venv"]:
+        # Set the venv path for analyzer
+        self.analyzer.venv_path = venv_path
+
+        # Verify the environment was created successfully
+        if not self.has_venv(venv_path):
             raise RuntimeError("Failed to create virtual environment")
 
+        # Get environment information
+        env_info = self.analyzer.get_venv_info()
         return env_info
 
     def install_requirements(self, venv_path: Path) -> None:
