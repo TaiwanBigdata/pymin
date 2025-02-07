@@ -10,6 +10,8 @@ from rich.text import Text
 from rich.tree import Tree
 from rich.style import Style
 from .package_analyzer import PackageAnalyzer
+from packaging import version
+import re
 
 
 class PackageManager:
@@ -117,7 +119,7 @@ class PackageManager:
         package_specs = [self._parse_package_spec(pkg) for pkg in packages]
 
         # 2. Install packages one by one
-        for name, version in package_specs:
+        for pkg_name, pkg_version in package_specs:
             try:
                 # Construct pip command
                 cmd = [str(self._pip_path), "install"]
@@ -125,7 +127,9 @@ class PackageManager:
                     cmd.append("-e")
                 if no_deps:
                     cmd.append("--no-deps")
-                pkg_spec = f"{name}=={version}" if version else name
+                pkg_spec = (
+                    f"{pkg_name}=={pkg_version}" if pkg_version else pkg_name
+                )
                 cmd.append(pkg_spec)
 
                 # First try: capture output to check for pip upgrade notice
@@ -163,10 +167,10 @@ class PackageManager:
                     )
 
                     # Try to find the package with case-insensitive matching
-                    pkg_name = name.lower()
+                    pkg_name_lower = pkg_name.lower()
                     matching_pkg = None
                     for installed_pkg, info in packages_after.items():
-                        if installed_pkg.lower() == pkg_name:
+                        if installed_pkg.lower() == pkg_name_lower:
                             matching_pkg = installed_pkg
                             pkg_info = info
                             break
@@ -199,11 +203,9 @@ class PackageManager:
                                 text=True,
                                 check=True,
                             )
-                            packages_list = eval(
-                                pip_list.stdout
-                            )  # Safe as we control the input
+                            packages_list = eval(pip_list.stdout)
                             for pkg in packages_list:
-                                if pkg["name"].lower() == name.lower():
+                                if pkg["name"].lower() == pkg_name.lower():
                                     results[pkg["name"]] = {
                                         "status": "installed",
                                         "version": pkg["version"],
@@ -220,29 +222,116 @@ class PackageManager:
                                     )
                                     break
                             else:
-                                results[name] = {
+                                results[pkg_name] = {
                                     "status": "error",
                                     "message": "Package not found after installation",
                                 }
                         except Exception:
-                            results[name] = {
+                            results[pkg_name] = {
                                 "status": "error",
                                 "message": "Package not found after installation",
                             }
                 else:
-                    # Real error occurred
-                    results[name] = {
+                    # Extract available versions from pip error message
+                    available_versions = []
+                    version_list_started = False
+
+                    for line in process.stderr.split("\n"):
+                        if "from versions:" in line:
+                            version_list = (
+                                line.split("from versions:", 1)[1]
+                                .strip("() ")
+                                .split(", ")
+                            )
+                            available_versions = [
+                                v.strip() for v in version_list if v.strip()
+                            ]
+                            break
+
+                    if available_versions:
+                        # Sort versions using packaging.version
+                        sorted_versions = sorted(
+                            available_versions, key=lambda v: version.parse(v)
+                        )
+                        latest_versions = sorted_versions[-5:]
+
+                        # Find versions close to the requested version
+                        if pkg_version:
+                            # Get closest available versions
+                            close_versions = sorted(
+                                sorted_versions,
+                                key=lambda v: get_version_distance(
+                                    v, pkg_version
+                                ),
+                            )[:5]
+
+                            # Add version suggestions to error message
+                            # Show latest versions in one line
+                            latest_ver_list = ", ".join(
+                                f"[cyan]{v}[/cyan]"
+                                + (
+                                    " (latest)"
+                                    if v == latest_versions[-1]
+                                    else ""
+                                )
+                                for v in reversed(latest_versions)
+                            )
+                            console.print(
+                                f"[yellow]Latest versions:[/yellow] {latest_ver_list}"
+                            )
+
+                            # Show similar versions in one line
+                            similar_ver_list = ", ".join(
+                                f"[cyan]{v}[/cyan]"
+                                + (
+                                    " (closest)"
+                                    if v == close_versions[0]
+                                    else ""
+                                )
+                                for v in close_versions
+                            )
+                            console.print(
+                                f"[yellow]Similar versions:[/yellow] {similar_ver_list}"
+                            )
+
+                            # Show error message
+                            console.print(
+                                f"\n[red]✗ Failed to add {pkg_name}:[/red] Version [cyan]{pkg_version}[/cyan] not found"
+                            )
+
+                            # Show pip upgrade notice if needed
+                            if (
+                                "new release of pip available"
+                                in process.stderr.lower()
+                            ):
+                                current_ver, latest_ver = (
+                                    self._get_pip_versions(process.stderr)
+                                )
+                                if current_ver and latest_ver:
+                                    console.print(
+                                        f"\n[yellow]Pip update available:[/yellow] {current_ver} -> {latest_ver}"
+                                    )
+                                    console.print(
+                                        "[dim]Run: pip install --upgrade pip[/dim]"
+                                    )
+
+                            # Show installation tip
+                            console.print(
+                                f"\n[dim]Tip: Try [cyan]pmm add {pkg_name}=={latest_versions[-1]}[/cyan] to install the latest version[/dim]"
+                            )
+
+                    results[pkg_name] = {
                         "status": "error",
-                        "message": process.stderr,
+                        "message": "Version not found",
                     }
 
             except subprocess.CalledProcessError as e:
-                results[name] = {
+                results[pkg_name] = {
                     "status": "error",
                     "message": e.stderr if e.stderr else str(e),
                 }
             except Exception as e:
-                results[name] = {
+                results[pkg_name] = {
                     "status": "error",
                     "message": str(e),
                 }
@@ -521,3 +610,69 @@ class PackageManager:
             raise RuntimeError(f"pip not found at {pip_path}")
 
         return pip_path
+
+    def _get_pip_versions(
+        self, stderr: str
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """Extract current and latest pip versions from stderr"""
+        current_version = None
+        latest_version = None
+        for line in stderr.split("\n"):
+            if "new release" in line.lower():
+                parts = line.split()
+                for i, part in enumerate(parts):
+                    if part == "->":
+                        current_version = parts[i - 1]
+                        latest_version = parts[i + 1]
+                        break
+        return current_version, latest_version
+
+
+def _get_pre_release_type_value(pre_type: str) -> int:
+    """Get numeric value for pre-release type for ordering"""
+    pre_type_order = {"a": 0, "b": 1, "rc": 2}
+    return pre_type_order.get(pre_type, 3)
+
+
+def get_version_distance(ver_str: str, target_str: str) -> float:
+    """Calculate distance between two version strings with improved handling of pre-releases"""
+    # Parse versions using packaging.version
+    ver = version.parse(ver_str)
+    target = version.parse(target_str)
+
+    # Get release components
+    ver_release = ver.release
+    target_release = target.release
+
+    # Pad with zeros to make same length
+    max_len = max(len(ver_release), len(target_release))
+    ver_parts = list(ver_release) + [0] * (max_len - len(ver_release))
+    target_parts = list(target_release) + [0] * (max_len - len(target_release))
+
+    # Calculate weighted distance for release parts
+    distance = 0
+    for i, (a, b) in enumerate(zip(ver_parts, target_parts)):
+        weight = 10 ** (max_len - i - 1)
+        distance += abs(a - b) * weight
+
+    # Add pre-release penalty
+    pre_release_penalty = 0
+    if ver.is_prerelease or target.is_prerelease:
+        # Penalize pre-releases but still keep them close to their release version
+        pre_release_penalty = 0.5
+
+        # If both are pre-releases, reduce penalty and compare their order
+        if ver.is_prerelease and target.is_prerelease:
+            pre_release_penalty = 0.25
+            # Compare pre-release parts
+            if ver.pre and target.pre:
+                pre_type_diff = abs(
+                    _get_pre_release_type_value(ver.pre[0])
+                    - _get_pre_release_type_value(target.pre[0])
+                )
+                pre_num_diff = abs(ver.pre[1] - target.pre[1])
+                pre_release_penalty += (
+                    pre_type_diff + pre_num_diff * 0.1
+                ) * 0.25
+
+    return distance + pre_release_penalty
