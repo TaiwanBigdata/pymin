@@ -27,7 +27,7 @@ from .modern.ui.console import (
     print_table,
     create_package_summary,
     create_summary_panel,
-    create_fix_tip,
+    print_tips,
 )
 from .modern.ui.style import DEFAULT_PANEL, PanelConfig, StyleType
 from typing import Union, List, Dict

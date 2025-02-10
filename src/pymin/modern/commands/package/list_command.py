@@ -14,7 +14,7 @@ from ...ui.console import (
     print_table,
     create_package_summary,
     create_summary_panel,
-    create_fix_tip,
+    print_tips,
 )
 
 # Create package analyzer instance
@@ -68,7 +68,9 @@ def list(show_all: bool, show_tree: bool):
             # Show fix tip if needed
             if should_show_fix_tip(packages):
                 console.print()
-                create_fix_tip()
+                print_tips(
+                    "Run [cyan]pmm fix[/cyan] to resolve package inconsistencies"
+                )
 
         else:
             # Get package data
@@ -141,7 +143,10 @@ def list(show_all: bool, show_tree: bool):
 
             # Show fix tip if needed
             if should_show_fix_tip(packages):
-                create_fix_tip()
+                console.print()
+                print_tips(
+                    "Run [cyan]pmm fix[/cyan] to resolve package inconsistencies"
+                )
 
     except Exception as e:
         print_error(f"Error: {str(e)}")

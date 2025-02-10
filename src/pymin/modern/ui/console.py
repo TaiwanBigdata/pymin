@@ -500,13 +500,35 @@ def create_package_summary(
     return content
 
 
-def create_fix_tip() -> None:
-    """Display tip message for package issues"""
-    tip = Text(style=StyleType.DIM)
-    tip.append("Tip: Run ")
-    tip.append("pm fix", style=StyleType.COMMAND)
-    tip.append(" to resolve package inconsistencies")
-    console.print(tip)
+def print_tips(
+    tips: Union[str, List[str]], *, dim: bool = True, indent: int = 2
+) -> None:
+    """Print tips with consistent styling.
+
+    Args:
+        tips: A single tip string or a list of tip strings
+        dim: Whether to dim the output
+        indent: Number of spaces to indent for bullet points (only used for multiple tips)
+    """
+    if not tips:
+        return
+
+    style = "[dim]" if dim else ""
+    end_style = "[/dim]" if dim else ""
+
+    if isinstance(tips, str):
+        # Single tip
+        console.print(f"{style}Tip: {tips}{end_style}")
+    else:
+        # Multiple tips
+        if len(tips) == 1:
+            # If only one tip in list, display as single tip
+            console.print(f"{style}Tip: {tips[0]}{end_style}")
+        else:
+            # Multiple tips with bullet points
+            console.print(f"{style}Tips:{end_style}")
+            for tip in tips:
+                console.print(f"{style}{' ' * indent}• {tip}{end_style}")
 
 
 def print_table(table: Table) -> None:

@@ -10,6 +10,7 @@ from ...ui.console import (
     print_success,
     console,
     progress_status,
+    print_tips,
 )
 from ...ui.style import SymbolType
 
@@ -126,7 +127,7 @@ def add(
                         .replace(" (latest)", "")
                     )
                     installation_tips.append(
-                        f"• [cyan]pmm add {pkg}=={latest_version}[/cyan]"
+                        f"[cyan]pmm add {pkg}=={latest_version}[/cyan] to install the latest version"
                     )
                 else:
                     console.print(
@@ -137,11 +138,7 @@ def add(
         # 最後顯示所有安裝建議
         if installation_tips:
             console.print()  # Add an extra blank line before tips
-            console.print(
-                "[dim]Tips: Try these commands to install the latest versions:[/dim]"
-            )
-            for tip in installation_tips:
-                console.print(f"[dim]  {tip}[/dim]")
+            print_tips(installation_tips)
 
     except Exception as e:
         print_error(f"Failed to add packages: {str(e)}")
