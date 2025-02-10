@@ -13,7 +13,7 @@ from .modern.commands.venv.info_command import info
 from .modern.commands.venv.activate_command import activate
 from .modern.commands.venv.deactivate_command import deactivate
 from .modern.commands.venv.venv_command import venv
-from .modern.commands.package import add, remove, list, update
+from .modern.commands.package import add, remove, list, update, fix
 from .modern.commands.pypi.check_command import check
 from .modern.commands.pypi.search_command import search
 from .modern.commands.pypi.release_command import release
@@ -104,6 +104,7 @@ cli.add_command(add)
 cli.add_command(remove)
 cli.add_command(list)
 cli.add_command(update)
+cli.add_command(fix)
 
 # Register PyPI integration commands
 cli.add_command(check)
