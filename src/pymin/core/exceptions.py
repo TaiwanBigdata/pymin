@@ -1,19 +1,19 @@
-"""Custom exceptions for the modern package management system"""
+"""Custom exceptions for the package management system"""
 
 
-class PyMinModernError(Exception):
-    """Base exception for PyMin Modern"""
+class PyMinError(Exception):
+    """Base exception for PyMin"""
 
     pass
 
 
-class VirtualEnvError(PyMinModernError):
+class VirtualEnvError(PyMinError):
     """Virtual environment related errors"""
 
     pass
 
 
-class PackageError(PyMinModernError):
+class PackageError(PyMinError):
     """Package management related errors"""
 
     pass
@@ -49,7 +49,7 @@ class RequirementsError(PackageError):
     pass
 
 
-class PyPIError(PyMinModernError):
+class PyPIError(PyMinError):
     """PyPI interaction errors"""
 
     pass

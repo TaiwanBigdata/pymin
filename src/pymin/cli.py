@@ -1,4 +1,4 @@
-"""Modern command-line interface for PyPI package management"""
+"""Command-line interface for PyPI package management"""
 
 import click
 from rich.console import Console
@@ -8,16 +8,17 @@ from rich.text import Text
 from pathlib import Path
 import os
 import sys
-from .modern.core.package_analyzer import PackageAnalyzer
-from .modern.commands.venv.info_command import info
-from .modern.commands.venv.activate_command import activate
-from .modern.commands.venv.deactivate_command import deactivate
-from .modern.commands.venv.venv_command import venv
-from .modern.commands.package import add, remove, list, update, fix
-from .modern.commands.pypi.check_command import check
-from .modern.commands.pypi.search_command import search
-from .modern.commands.pypi.release_command import release
-from .modern.ui.console import (
+import tomllib
+from .core.package_analyzer import PackageAnalyzer
+from .commands.venv.info_command import info
+from .commands.venv.activate_command import activate
+from .commands.venv.deactivate_command import deactivate
+from .commands.venv.venv_command import venv
+from .commands.package import add, remove, list, update, fix
+from .commands.pypi.check_command import check
+from .commands.pypi.search_command import search
+from .commands.pypi.release_command import release
+from .ui.console import (
     create_package_table,
     create_dependency_tree,
     print_error,
@@ -29,20 +30,33 @@ from .modern.ui.console import (
     create_summary_panel,
     print_tips,
 )
-from .modern.ui.style import DEFAULT_PANEL, PanelConfig, StyleType
+from .ui.style import DEFAULT_PANEL, PanelConfig, StyleType
 from typing import Union, List, Dict
+from .core.version_checker import check_for_updates
 
 console = Console(force_terminal=True, color_system="auto")
 
 # Create package analyzer instance
 pkg_analyzer = PackageAnalyzer()
 
+# Get version from pyproject.toml
+try:
+    with open(
+        Path(__file__).parent.parent.parent / "pyproject.toml", "rb"
+    ) as f:
+        __version__ = tomllib.load(f)["project"]["version"]
+except Exception:
+    __version__ = "unknown"
 
-class ModernGroup(click.Group):
-    """Modern command group with custom help formatting"""
+# Check for updates before anything else
+check_for_updates()
+
+
+class CliGroup(click.Group):
+    """Command group with custom help formatting"""
 
     def format_help(self, ctx, formatter):
-        """Format help message with modern styling"""
+        """Format help message with styling"""
         console.print(
             Panel.fit(
                 "\n".join(
@@ -77,7 +91,7 @@ class ModernGroup(click.Group):
         )
 
 
-@click.group(cls=ModernGroup, chain=True)
+@click.group(cls=CliGroup, chain=True)
 @click.option(
     "--version",
     "-v",
@@ -86,10 +100,10 @@ class ModernGroup(click.Group):
     help="Show version number",
     is_eager=True,
     callback=lambda ctx, param, value: value
-    and (console.print("pymin-modern 0.1.0") or ctx.exit()),
+    and (console.print(f"pymin {__version__}") or ctx.exit()),
 )
 def cli(version: bool = False):
-    """PyMin Modern - Modern PyPI Package Management Tool"""
+    """PyMin - PyPI Package Management Tool"""
     pass
 
 

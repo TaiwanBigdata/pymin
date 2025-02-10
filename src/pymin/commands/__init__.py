@@ -1,4 +1,4 @@
-"""Command modules for the modern CLI"""
+"""Command modules for the CLI"""
 
 from .venv.info_command import info
 from .venv.activate_command import activate
