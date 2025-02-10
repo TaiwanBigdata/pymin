@@ -68,11 +68,11 @@ def add(
         # Display results
         console.print()
 
-        # 儲存所有需要顯示的 tips
+        # Store tips and auto-fixed packages
         installation_tips = []
         auto_fixed_packages = []
 
-        # 按照安裝順序顯示結果
+        # Display results in installation order
         for pkg, info in results.items():
             if info["status"] == "installed":
                 console.print(
@@ -108,7 +108,7 @@ def add(
 
                 # Check if it's a version-related error
                 if "Version not found" in error_msg and version_info:
-                    # 嘗試自動安裝最新版本
+                    # Try to install the latest version
                     latest_version = (
                         version_info["latest_versions"]
                         .split(",")[0]
@@ -118,10 +118,38 @@ def add(
                         .replace(" (latest)", "")
                     )
 
-                    # 記錄自動修正的套件
-                    auto_fixed_packages.append((pkg, latest_version))
+                    # Get original version from package spec
+                    original_version = None
+                    for pkg_spec in packages:
+                        if pkg_spec.startswith(f"{pkg}=="):
+                            original_version = pkg_spec.split("==")[1]
+                            break
 
-                    # 重新嘗試安裝最新版本
+                    # Analyze update reason
+                    update_reason = ""
+                    if (
+                        "Python version" in error_msg
+                        or "requires Python" in error_msg
+                    ):
+                        update_reason = "Python compatibility issue"
+                    elif "dependency conflict" in error_msg:
+                        update_reason = "Dependency conflict"
+                    elif "not found" in error_msg:
+                        update_reason = "Version not found"
+                    else:
+                        update_reason = "Installation failed"
+
+                    # Record package with original and new version
+                    auto_fixed_packages.append(
+                        (
+                            pkg,
+                            original_version or "unknown",
+                            latest_version,
+                            update_reason,
+                        )
+                    )
+
+                    # Retry with latest version
                     with progress_status(
                         f"Trying latest version {latest_version}..."
                     ):
@@ -132,7 +160,7 @@ def add(
                             no_deps=no_deps,
                         )
 
-                    # 檢查重試結果
+                    # Check retry results
                     retry_info = retry_results.get(pkg, {})
                     if retry_info.get("status") == "installed":
                         console.print(
@@ -180,18 +208,24 @@ def add(
                     )
             console.print()  # Add a blank line between packages
 
-        # 顯示自動修正的套件提示
+        # Display auto-fixed packages summary
         if auto_fixed_packages:
             console.print()
             print_warning(
-                "Some packages were automatically updated to their latest versions:"
+                "Some packages were automatically updated to their latest compatible versions:"
             )
-            for pkg, version in auto_fixed_packages:
+            for (
+                pkg,
+                original_version,
+                latest_version,
+                reason,
+            ) in auto_fixed_packages:
                 console.print(
-                    f"[dim]• [cyan]{pkg}[/cyan] -> [cyan]{version}[/cyan][/dim]"
+                    f"[dim]• [cyan]{pkg}[/cyan] {original_version} ([yellow]{reason}[/yellow]) -> [cyan]{latest_version}[/cyan][/dim]"
                 )
+            console.print()
 
-        # 最後顯示所有安裝建議
+        # Display installation tips if any
         if installation_tips:
             console.print()  # Add an extra blank line before tips
             print_tips(installation_tips)
