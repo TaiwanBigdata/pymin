@@ -5,7 +5,7 @@ import sys
 import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any, Set
-from ..ui.console import progress_status, print_error, console
+from ..ui.console import progress_status, print_error, console, print_warning
 from rich.text import Text
 from rich.tree import Tree
 from rich.style import Style
@@ -417,6 +417,12 @@ class PackageManager:
         # 2. Remove packages
         for pkg in packages_to_remove:
             try:
+                # Get removable dependencies before removing the main package
+                pkg_info = installed_packages[pkg]
+                dep_info = dependency_info.get(pkg, {})
+                removable_deps = dep_info.get("removable_deps", [])
+
+                # First remove the main package
                 cmd = [str(self._pip_path), "uninstall", "-y", pkg]
                 process = subprocess.run(
                     cmd,
@@ -426,7 +432,20 @@ class PackageManager:
                 )
 
                 if process.returncode == 0:
-                    pkg_info = installed_packages[pkg]
+                    # Then remove its removable dependencies
+                    for dep in removable_deps:
+                        dep_cmd = [str(self._pip_path), "uninstall", "-y", dep]
+                        dep_process = subprocess.run(
+                            dep_cmd,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            text=True,
+                        )
+                        if dep_process.returncode != 0:
+                            print_warning(
+                                f"Warning: Failed to remove dependency {dep}"
+                            )
+
                     results[pkg] = {
                         "status": "removed",
                         "version": pkg_info["installed_version"],
