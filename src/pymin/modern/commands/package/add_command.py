@@ -70,6 +70,7 @@ def add(
 
         # 儲存所有需要顯示的 tips
         installation_tips = []
+        auto_fixed_packages = []
 
         # 按照安裝順序顯示結果
         for pkg, info in results.items():
@@ -107,17 +108,7 @@ def add(
 
                 # Check if it's a version-related error
                 if "Version not found" in error_msg and version_info:
-                    console.print(
-                        f"[red]{SymbolType.ERROR}[/red] Failed to add [cyan]{pkg}[/cyan]"
-                    )
-                    console.print(
-                        f"[dim][yellow]Latest versions:[/yellow] {version_info['latest_versions']}[/dim]"
-                    )
-                    console.print(
-                        f"[dim][yellow]Similar versions:[/yellow] {version_info['similar_versions']}[/dim]"
-                    )
-
-                    # Store installation tip for later
+                    # 嘗試自動安裝最新版本
                     latest_version = (
                         version_info["latest_versions"]
                         .split(",")[0]
@@ -126,14 +117,79 @@ def add(
                         .replace("[/cyan]", "")
                         .replace(" (latest)", "")
                     )
-                    installation_tips.append(
-                        f"[cyan]pmm add {pkg}=={latest_version}[/cyan] to install the latest version"
-                    )
+
+                    # 記錄自動修正的套件
+                    auto_fixed_packages.append((pkg, latest_version))
+
+                    # 重新嘗試安裝最新版本
+                    with progress_status(
+                        f"Trying latest version {latest_version}..."
+                    ):
+                        retry_results = manager.add_packages(
+                            [f"{pkg}=={latest_version}"],
+                            dev=dev,
+                            editable=editable,
+                            no_deps=no_deps,
+                        )
+
+                    # 檢查重試結果
+                    retry_info = retry_results.get(pkg, {})
+                    if retry_info.get("status") == "installed":
+                        console.print(
+                            f"[bold][yellow]{SymbolType.WARNING}[/yellow] Auto-fixed [cyan]{pkg}[/cyan] to version [cyan]{latest_version}[/cyan][/bold]"
+                        )
+                        if retry_info.get("new_dependencies") or retry_info.get(
+                            "existing_dependencies"
+                        ):
+                            dep_versions = {}
+                            for dep in retry_info.get(
+                                "new_dependencies", []
+                            ) + retry_info.get("existing_dependencies", []):
+                                dep_version = manager.package_manager._get_installed_version(
+                                    dep
+                                )
+                                if dep_version:
+                                    dep_versions[dep] = dep_version
+
+                            if dep_versions:
+                                deps_str = ", ".join(
+                                    f"[cyan]{dep}=={version}[/cyan]"
+                                    for dep, version in sorted(
+                                        dep_versions.items()
+                                    )
+                                )
+                                console.print(
+                                    f"[dim]Installed dependencies:  {deps_str}[/dim]"
+                                )
+                    else:
+                        console.print(
+                            f"[red]{SymbolType.ERROR}[/red] Failed to add [cyan]{pkg}[/cyan]"
+                        )
+                        console.print(
+                            f"[dim][yellow]Latest versions:[/yellow] {version_info['latest_versions']}[/dim]"
+                        )
+                        console.print(
+                            f"[dim][yellow]Similar versions:[/yellow] {version_info['similar_versions']}[/dim]"
+                        )
+                        installation_tips.append(
+                            f"[cyan]pmm add {pkg}=={latest_version}[/cyan] to install the latest version"
+                        )
                 else:
                     console.print(
                         f"[red]{SymbolType.ERROR}[/red] Failed to add [cyan]{pkg}[/cyan]: {error_msg}"
                     )
             console.print()  # Add a blank line between packages
+
+        # 顯示自動修正的套件提示
+        if auto_fixed_packages:
+            console.print()
+            print_warning(
+                "Some packages were automatically updated to their latest versions:"
+            )
+            for pkg, version in auto_fixed_packages:
+                console.print(
+                    f"[dim]• [cyan]{pkg}[/cyan] -> [cyan]{version}[/cyan][/dim]"
+                )
 
         # 最後顯示所有安裝建議
         if installation_tips:
