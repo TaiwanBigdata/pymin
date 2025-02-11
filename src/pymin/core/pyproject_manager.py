@@ -19,9 +19,16 @@ class PyProjectManager:
         """
         self.file_path = Path(file_path)
         self._data: Optional[tomlkit.TOMLDocument] = None
-        self._version_pattern = re.compile(r"^(\d+\.)?(\d+\.)?(\d+)$")
+        # Version pattern following PEP 440 and common practices
+        self._version_pattern = re.compile(
+            r"^(\d+\.\d+\.\d+)"  # Major.Minor.Patch (required)
+            r"((a|b|rc|alpha|beta)\d+)?"  # Pre-release version (optional, without dot)
+            r"(\.dev\d+)?"  # Development release (optional)
+            r"(\.post\d+)?"  # Post-release version (optional)
+            r"(\+[a-zA-Z0-9]+(?:\.[a-zA-Z0-9]+)*)?$"  # Local version identifier (optional)
+        )
         self._dependency_pattern = re.compile(
-            r"^([a-zA-Z0-9-_.]+)([>=<!~]=?|!=)(.+)$"
+            r"^([a-zA-Z0-9-_.]+)([>=<!~]=?|!=)(.+)$"  # Package name, constraint, version
         )
         self.valid_constraints = [">=", "==", "<=", "!=", "~=", ">", "<"]
 

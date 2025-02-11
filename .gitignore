@@ -10,11 +10,22 @@ __pycache__/
 *.egg-info/
 *.egg-info/*
 *.bak
-test.py
 requirements.txt
 
+# pytest coverage
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+__pycache__/
+*.pyc
+
+# test reports
+coverage.json
+coverage.lcov
+.coverage.*
+
 # Project Specific
-/app/test*.py
 /backups/
 /caches/
 /secrets/
