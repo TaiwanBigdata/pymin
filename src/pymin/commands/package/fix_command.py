@@ -15,6 +15,7 @@ from ...ui.console import (
     print_success,
     console,
     progress_status,
+    create_summary_panel,
 )
 from ...ui.style import SymbolType
 from rich.text import Text
@@ -345,16 +346,10 @@ def fix(yes: bool = False, use_pyproject: bool = False):
                 if use_pyproject:
                     from ...core.pyproject_manager import PyProjectManager
 
-                    console.print("[dim]Initializing PyProjectManager...[/dim]")
                     proj_manager = PyProjectManager(pyproject_path)
-                    console.print("[dim]PyProjectManager initialized.[/dim]")
 
-                console.print(
-                    f"[dim]Processing {len(redundant_packages)} packages to remove...[/dim]"
-                )
                 for name in redundant_packages:
                     try:
-                        console.print(f"[dim]Removing {name}...[/dim]")
                         if use_pyproject and proj_manager:
                             proj_manager.remove_dependency(name)
                         else:
@@ -370,9 +365,6 @@ def fix(yes: bool = False, use_pyproject: bool = False):
                         print_error(
                             f"Failed to remove [cyan]{name}[/cyan] from {'pyproject.toml' if use_pyproject else 'requirements.txt'}: {str(e)}"
                         )
-                console.print(
-                    "[dim]Finished processing package removals.[/dim]"
-                )
 
         # Handle not in requirements packages
         if not_in_requirements:
@@ -413,10 +405,23 @@ def fix(yes: bool = False, use_pyproject: bool = False):
 
         # Show summary
         console.print()
-        if fixed_count > 0:
-            print_success(f"Successfully fixed {fixed_count} issue(s)")
-        if error_count > 0:
-            print_error(f"Failed to fix {error_count} issue(s)")
+        if fixed_count > 0 or error_count > 0:
+            summary_text = Text()
+            summary_text.append("Total Issues: ")
+            summary_text.append(f"{fixed_count + error_count}", style="cyan")
+            summary_text.append("\n\n")
+
+            if fixed_count > 0:
+                summary_text.append("• Fixed: ")
+                summary_text.append(f"{fixed_count}", style="green")
+                summary_text.append("\n")
+
+            if error_count > 0:
+                summary_text.append("• Failed: ")
+                summary_text.append(f"{error_count}", style="red")
+
+            console.print(create_summary_panel("Fix Summary", summary_text))
+            console.print()
 
     except Exception as e:
         print_error(f"Failed to fix package inconsistencies: {str(e)}")

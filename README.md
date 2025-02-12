@@ -1,6 +1,6 @@
 # PyMin
 
-### pymin (0.0.12)
+### pymin (0.0.14)
 
 PyMin embodies Python's minimalist philosophy: a focused tool that does one thing exceptionally well. The name reflects our commitment to minimalism - minimal configuration, minimal complexity, but maximum effectiveness in Python development workflow.
 
@@ -43,17 +43,22 @@ A CLI tool for PyPI package management, providing package name validation, virtu
 
 2. Package Management
    - Smart dependency visualization with tree structure (`pm list -t`)
-   - Efficient package installation with version control (`pm add`)
+   - Efficient package installation and version management:
+     * Add new packages with version control
+     * Update existing packages to specific versions
+     * Support for both requirements.txt and pyproject.toml
    - Intelligent package removal with dependency cleanup (`pm rm`)
    - Comprehensive package inconsistency detection and auto-fix (`pm fix`):
      * Version mismatches (≠)
      * Missing packages (✗)
      * Redundant dependencies (⚠)
      * Unlisted installed packages (△)
-   - Smart requirements.txt management:
-     * Only main packages are listed
-     * Dependencies are automatically managed
-     * Prevents redundant dependency declarations
+   - Dual dependency management support:
+     * Smart requirements.txt management
+     * pyproject.toml integration with PEP 621 compliance
+     * Synchronized dependency tracking across both files
+     * Case-sensitive package name handling
+     * Automatic version normalization
    - Bulk package operations support
    - One-command package updates (`pm update`/`pm up`)
    - Version conflict detection and resolution
@@ -110,16 +115,16 @@ Both `add` and `remove` commands support multiple packages in one operation
 | Command    | Description                                | Alias/Options          |
 |------------|--------------------------------------------|------------------------|
 | `list`     | List installed packages                    | -a: all, -t: tree      |
-| `add`      | Add and install packages                   |                        |
-| `remove`   | Remove packages from requirements.txt      | `rm`, -y: auto-confirm |
+| `add`      | Add or Update packages                     | -p: use pyproject.toml |
+| `remove`   | Remove packages from requirements.txt      | `rm`                   |
 | `update`   | Update all packages to latest versions     | `up`, -y: auto-confirm |
-| `fix`      | Fix package inconsistencies                | -y: auto-confirm       |
+| `fix`      | Fix package inconsistencies                | -p: use pyproject.toml, -y: auto-confirm |
 
 The `fix` command automatically resolves all package inconsistencies:
 - Installs missing packages (✗)
 - Updates packages to match required versions (≠)
-- Removes redundant packages from requirements.txt (⚠)
-- Adds unlisted installed packages to requirements.txt (△)
+- Removes redundant packages from requirements.txt/pyproject.toml (⚠)
+- Adds unlisted installed packages to requirements.txt/pyproject.toml (△)
 
 #### PyPI Integration
 | Command    | Description                                | Alias/Options       |
@@ -148,22 +153,27 @@ $ pm deactivate    # or pm off
 #### Package Management
 ```bash
 # Add packages
-$ pm add fastapi
-$ pm add fastapi==0.100.0    # Specific version
-$ pm add fastapi sqlalchemy  # Multiple packages
+$ pm add fastapi                # Add to requirements.txt
+$ pm add fastapi -p             # Add to pyproject.toml
+$ pm add fastapi==0.100.0       # Add or Update to specific version
+$ pm add fastapi sqlalchemy     # Multiple packages
+
 
 # Remove packages
 $ pm rm fastapi
-$ pm rm -y fastapi           # Auto confirm
 
 # List packages
-$ pm list                    # Show main packages
-$ pm list -a                 # Show all packages
-$ pm list -t                 # Show dependency tree
+$ pm list                       # Show main packages
+$ pm list -a                    # Show all packages
+$ pm list -t                    # Show dependency tree
 
 # Update and fix
-$ pm update                  # Update all packages
-$ pm fix                     # Fix requirements.txt
+$ pm update                     # Update all packages
+$ pm update -y                  # Update without confirmation
+$ pm fix                        # Fix based on requirements.txt (default)
+$ pm fix -p                     # Fix based on pyproject.toml
+$ pm fix -y                     # Fix without confirmation
+$ pm fix -p -y                  # Fix based on pyproject.toml without confirmation
 ```
 
 #### PyPI Integration

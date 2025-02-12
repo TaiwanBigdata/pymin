@@ -32,7 +32,18 @@ pkg_analyzer = PackageAnalyzer()
     is_flag=True,
     help="Only check for updates without installing them",
 )
-def update(packages: List[str], update_all: bool = False, check: bool = False):
+@click.option(
+    "-y",
+    "--yes",
+    is_flag=True,
+    help="Automatically confirm updates",
+)
+def update(
+    packages: List[str],
+    update_all: bool = False,
+    check: bool = False,
+    yes: bool = False,
+):
     """Update packages to their latest versions
 
     PACKAGES: Package names to update (optional)
@@ -148,7 +159,7 @@ def update(packages: List[str], update_all: bool = False, check: bool = False):
             return
 
         # Confirm updates
-        if not click.confirm(
+        if not yes and not click.confirm(
             "\nDo you want to update these packages?", default=True
         ):
             return

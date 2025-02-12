@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pymin"
-version = "0.0.13"
+version = "0.0.14"
 description = "A minimalist Python CLI tool for development workflow. Named after Taiwanese '歹命' (Pháiⁿ-miā), it turns common development pain points into simple solutions, providing package name validation, virtual environment management, and project information display with minimal configuration."
 readme = "README.md"
 requires-python = ">=3.8"
