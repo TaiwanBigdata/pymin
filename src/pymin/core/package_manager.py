@@ -10,6 +10,7 @@ from rich.text import Text
 from rich.tree import Tree
 from rich.style import Style
 from .package_analyzer import PackageAnalyzer
+from .version_utils import normalize_package_name
 from packaging import version
 import re
 import requests
@@ -474,21 +475,48 @@ class PackageManager:
                 requirements = [
                     r
                     for r in requirements
-                    if not any(r.startswith(f"{pkg}==") for pkg in removed)
+                    if not any(
+                        normalize_package_name(r.split("==")[0])
+                        == normalize_package_name(pkg)
+                        for pkg in removed
+                    )
                 ]
 
             # Add packages
             if added:
-                # First remove any existing versions of the packages we're adding
+                # 先移除要新增的套件的舊版本（使用正規化名稱比較）
                 for pkg_spec in added:
                     pkg_name = pkg_spec.split("==")[0]
+                    normalized_name = normalize_package_name(pkg_name)
                     requirements = [
                         r
                         for r in requirements
-                        if not r.startswith(f"{pkg_name}==")
+                        if normalize_package_name(r.split("==")[0])
+                        != normalized_name
                     ]
-                # Then add the new versions
-                requirements.extend(added)
+
+                # 取得已安裝套件的原始名稱
+                installed_packages = (
+                    self.package_analyzer.get_installed_packages()
+                )
+                new_requirements = []
+
+                for pkg_spec in added:
+                    pkg_name, version = pkg_spec.split("==")
+                    normalized_name = normalize_package_name(pkg_name)
+
+                    # 如果套件已安裝，使用其原始名稱
+                    if normalized_name in installed_packages:
+                        original_name = installed_packages[normalized_name][
+                            "name"
+                        ]
+                        new_requirements.append(f"{original_name}=={version}")
+                    else:
+                        # 如果尚未安裝，使用提供的名稱
+                        new_requirements.append(pkg_spec)
+
+                # 加入新的套件規格（使用原始名稱）
+                requirements.extend(new_requirements)
 
             # Write back
             with open(self.requirements_path, "w") as f:

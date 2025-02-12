@@ -8,7 +8,9 @@ from .version_utils import (
     VALID_CONSTRAINTS,
     validate_version,
     parse_dependency,
+    normalize_package_name,
 )
+from .package_analyzer import PackageAnalyzer
 
 
 class PyProjectManager:
@@ -116,7 +118,20 @@ class PyProjectManager:
 
         self._ensure_dependencies_table()
         dep_list = self.data["project"]["dependencies"]
-        new_dep_str = f"{package_name}{constraint}{version}"
+
+        # 取得正規化名稱
+        normalized_name = normalize_package_name(package_name)
+
+        # 從已安裝的套件中找出原始名稱
+        pkg_analyzer = PackageAnalyzer()
+        installed_packages = pkg_analyzer.get_installed_packages()
+        original_name = package_name  # 預設使用傳入的名稱
+
+        if normalized_name in installed_packages:
+            original_name = installed_packages[normalized_name]["name"]
+
+        # 使用原始名稱建立相依性字串
+        new_dep_str = f"{original_name}{constraint}{version}"
 
         # Create new array preserving format
         new_dep_list = tomlkit.array()
@@ -127,9 +142,7 @@ class PyProjectManager:
         for dep in dep_list:
             try:
                 current_name, _, _ = self._parse_dependency(dep)
-                if (
-                    current_name != package_name
-                ):  # Skip the package we're updating
+                if normalize_package_name(current_name) != normalized_name:
                     all_deps.add(dep)
             except ValueError:
                 all_deps.add(dep)
@@ -154,10 +167,16 @@ class PyProjectManager:
             new_dep_list = tomlkit.array()
             new_dep_list.multiline(True)
 
+            # 正規化要移除的套件名稱
+            normalized_remove_name = normalize_package_name(package_name)
+
             for dep in dep_list:
                 try:
                     current_name, _, _ = self._parse_dependency(dep)
-                    if current_name != package_name:
+                    if (
+                        normalize_package_name(current_name)
+                        != normalized_remove_name
+                    ):
                         new_dep_list.append(dep)
                 except ValueError:
                     new_dep_list.append(dep)
