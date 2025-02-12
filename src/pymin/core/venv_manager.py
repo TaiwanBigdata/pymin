@@ -260,6 +260,51 @@ class VenvManager:
         env_info = self.analyzer.get_venv_info()
         return env_info
 
+    def install_pyproject_dependencies(self, venv_path: Path) -> None:
+        """Install dependencies from pyproject.toml using PackageManager
+
+        Args:
+            venv_path: Path to the virtual environment
+        """
+        pyproject_path = Path("pyproject.toml")
+        if not pyproject_path.exists():
+            return
+
+        try:
+            # Create a temporary package manager for this venv
+            temp_package_manager = PackageManager(venv_path)
+
+            # Initialize PyProjectManager
+            from .pyproject_manager import PyProjectManager
+
+            proj_manager = PyProjectManager(pyproject_path)
+
+            # Get dependencies from pyproject.toml
+            dependencies = []
+            deps_dict = proj_manager.get_dependencies()
+            for pkg_name, (constraint, version) in deps_dict.items():
+                dependencies.append(f"{pkg_name}{constraint}{version}")
+
+            if not dependencies:
+                return
+
+            # Install packages using package manager
+            temp_package_manager.add_packages(
+                packages=dependencies,
+                dev=False,  # Regular dependencies by default
+                editable=False,  # Regular install by default
+                no_deps=False,  # Install dependencies by default
+            )
+
+            # Clear package analyzer cache after installation
+            if hasattr(self, "package_analyzer"):
+                self.package_analyzer.clear_cache()
+
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to install pyproject.toml dependencies: {str(e)}"
+            )
+
     def install_requirements(self, venv_path: Path) -> None:
         """Install requirements from requirements.txt using PackageManager
 
@@ -267,27 +312,84 @@ class VenvManager:
             venv_path: Path to the virtual environment
         """
         requirements_file = Path("requirements.txt")
-        if not requirements_file.exists():
+        pyproject_path = Path("pyproject.toml")
+
+        # If neither file exists, return early
+        if not requirements_file.exists() and not pyproject_path.exists():
             return
 
         try:
             # Create a temporary package manager for this venv
             temp_package_manager = PackageManager(venv_path)
 
-            # Read requirements file
-            with open(requirements_file, "r") as f:
-                requirements = [
-                    line.strip()
-                    for line in f.readlines()
-                    if line.strip() and not line.startswith("#")
-                ]
+            # Get dependencies from both files if they exist
+            requirements = []
+            pyproject_deps = {}
 
-            if not requirements:
+            if pyproject_path.exists():
+                from .pyproject_manager import PyProjectManager
+
+                proj_manager = PyProjectManager(pyproject_path)
+                pyproject_deps = proj_manager.get_dependencies()
+
+            if requirements_file.exists():
+                with open(requirements_file, "r") as f:
+                    requirements = [
+                        line.strip()
+                        for line in f.readlines()
+                        if line.strip() and not line.startswith("#")
+                    ]
+
+            # Process and merge dependencies
+            final_dependencies = []
+            req_deps = {}
+
+            # Parse requirements.txt dependencies
+            for req in requirements:
+                try:
+                    if "==" in req:
+                        name, version = req.split("==")
+                        req_deps[name.strip()] = ("==", version.strip())
+                    else:
+                        final_dependencies.append(req)
+                except Exception:
+                    final_dependencies.append(req)
+
+            # Handle version conflicts and merge dependencies
+            for pkg_name, (constraint, version) in pyproject_deps.items():
+                if pkg_name in req_deps:
+                    # Version conflict found
+                    req_constraint, req_version = req_deps[pkg_name]
+                    if req_version != version:
+                        from ..ui.console import print_warning
+
+                        print_warning(
+                            f"Version conflict for {pkg_name}: "
+                            f"pyproject.toml ({constraint}{version}) != "
+                            f"requirements.txt ({req_constraint}{req_version})"
+                        )
+                        print_warning(
+                            f"Using version from pyproject.toml: {constraint}{version}"
+                        )
+                    final_dependencies.append(
+                        f"{pkg_name}{constraint}{version}"
+                    )
+                    req_deps.pop(pkg_name)
+                else:
+                    final_dependencies.append(
+                        f"{pkg_name}{constraint}{version}"
+                    )
+
+            # Add remaining requirements.txt dependencies
+            for pkg_name, (constraint, version) in req_deps.items():
+                final_dependencies.append(f"{pkg_name}{constraint}{version}")
+
+            if not final_dependencies:
                 return
 
             # Install packages using package manager
             temp_package_manager.add_packages(
-                packages=requirements,
+                packages=final_dependencies,
                 dev=False,  # Regular dependencies by default
                 editable=False,  # Regular install by default
                 no_deps=False,  # Install dependencies by default

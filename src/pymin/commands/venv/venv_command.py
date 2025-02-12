@@ -97,10 +97,12 @@ def venv(name: str = None, yes: bool = False, rebuild: bool = False):
 
         # Install requirements if they exist
         requirements_file = Path("requirements.txt")
-        if requirements_file.exists():
-            with progress_status("Installing requirements..."):
+        pyproject_file = Path("pyproject.toml")
+
+        if requirements_file.exists() or pyproject_file.exists():
+            with progress_status("Installing dependencies..."):
                 manager.install_requirements(venv_path)
-            print_success("Requirements installed successfully")
+            print_success("Dependencies installed successfully")
 
         # Activate the environment
         print_success("Use 'pmm on' to activate the environment")
