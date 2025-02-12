@@ -297,6 +297,114 @@ class PackageManager:
 
         return results
 
+    def get_packages_to_remove(self, package_names: List[str]) -> Set[str]:
+        """
+        取得可以安全移除的套件集合。
+        一個套件可以被移除，如果它只被目標套件所依賴，且不是 required package。
+
+        Args:
+            package_names: 要移除的套件名稱列表
+
+        Returns:
+            可以安全移除的套件名稱集合
+        """
+        # 初始化集合
+        packages_to_remove = set(package_names)
+        checked_packages = set()
+        all_dependencies = self._get_all_dependencies()
+        installed_packages = self._get_installed_packages()
+
+        # 取得 required packages
+        required_packages = set()
+        pyproject_path = Path("pyproject.toml")
+        if pyproject_path.exists():
+            from .pyproject_manager import PyProjectManager
+
+            proj_manager = PyProjectManager(pyproject_path)
+            required_packages = {
+                normalize_package_name(name)
+                for name in proj_manager.get_dependencies().keys()
+            }
+
+        def is_safe_to_remove(pkg: str, chain: Set[str] = None) -> bool:
+            """
+            檢查套件是否可以安全移除
+
+            Args:
+                pkg: 要檢查的套件名稱
+                chain: 檢查鏈，用於避免循環依賴
+
+            Returns:
+                bool: 是否可以安全移除
+            """
+            if chain is None:
+                chain = set()
+
+            # 避免循環依賴
+            if pkg in chain:
+                return False
+
+            # 檢查是否為 required package
+            if normalize_package_name(pkg) in required_packages:
+                return False
+
+            chain.add(pkg)
+
+            # 檢查是否有其他套件依賴此套件
+            dependents = all_dependencies.get(pkg, set())
+
+            # 移除將要被移除的套件
+            remaining_dependents = dependents - packages_to_remove
+
+            # 如果沒有其他依賴，可以安全移除
+            if not remaining_dependents:
+                return True
+
+            # 檢查每個依賴此套件的套件
+            for dependent in remaining_dependents:
+                # 如果依賴的套件不在移除列表中，則不能移除
+                if dependent not in packages_to_remove:
+                    return False
+
+                # 遞迴檢查依賴的套件
+                if not is_safe_to_remove(dependent, chain):
+                    return False
+
+            return True
+
+        def check_dependencies(pkg: str) -> None:
+            """
+            遞迴檢查套件的依賴
+
+            Args:
+                pkg: 要檢查的套件名稱
+            """
+            if pkg in checked_packages:
+                return
+
+            checked_packages.add(pkg)
+
+            # 取得套件的直接依賴
+            pkg_info = installed_packages.get(pkg)
+            if not pkg_info:
+                return
+
+            for dep in pkg_info["dependencies"]:
+                # 如果依賴已經在移除列表中，跳過
+                if dep in packages_to_remove:
+                    continue
+
+                # 檢查依賴是否可以安全移除
+                if is_safe_to_remove(dep):
+                    packages_to_remove.add(dep)
+                    check_dependencies(dep)
+
+        # 從所有目標套件開始檢查
+        for package_name in package_names:
+            check_dependencies(package_name)
+
+        return packages_to_remove
+
     def remove_packages(
         self,
         packages: List[str],
@@ -314,13 +422,16 @@ class PackageManager:
 
         # 取得所有已安裝的套件資訊
         all_packages = self._get_installed_packages()
-        # print("all_packages: ", all_packages)
         # 建立依賴關係映射
         all_dependencies = self._get_all_dependencies()
-        # print("all_dependencies: ", all_dependencies)
+
+        # 取得所有可以安全移除的套件
+        packages_to_remove = self.get_packages_to_remove(packages)
+
+        # 先處理主要要求移除的套件
         for pkg in packages:
             try:
-                # Get version before uninstalling
+                # 取得版本資訊
                 version = self._get_installed_version(pkg)
                 if not version:
                     results[pkg] = {
@@ -329,24 +440,27 @@ class PackageManager:
                     }
                     continue
 
-                # 取得此套件的依賴
+                # 取得此套件的依賴資訊
                 pkg_deps = set(
                     all_packages.get(pkg, {}).get("dependencies", [])
                 )
-                # 找出可以移除的依賴（只被此套件使用）
                 removable_deps = set()
-                kept_deps = set()
+                kept_deps = {}
 
+                # 檢查每個依賴
                 for dep in pkg_deps:
-                    dependents = all_dependencies.get(dep, set())
-                    # 移除當前套件
-                    dependents.discard(pkg)
-                    if not dependents:
+                    if dep in packages_to_remove:
                         removable_deps.add(dep)
                     else:
-                        kept_deps.add(dep)
+                        # 記錄保留原因
+                        dependents = (
+                            all_dependencies.get(dep, set())
+                            - packages_to_remove
+                        )
+                        if dependents:
+                            kept_deps[dep] = sorted(dependents)
 
-                # 先移除主套件
+                # 移除套件
                 cmd = [str(self._pip_path), "uninstall", "-y", pkg]
                 process = subprocess.run(
                     cmd,
@@ -361,29 +475,10 @@ class PackageManager:
                         "status": "removed",
                         "version": version,
                         "dependency_info": {
-                            "removable_deps": list(removable_deps),
-                            "kept_deps": list(kept_deps),
+                            "removable_deps": sorted(removable_deps),
+                            "kept_deps": kept_deps,
                         },
                     }
-
-                    # 移除可以移除的依賴
-                    for dep in removable_deps:
-                        dep_version = self._get_installed_version(dep)
-                        if dep_version:
-                            dep_cmd = [
-                                str(self._pip_path),
-                                "uninstall",
-                                "-y",
-                                dep,
-                            ]
-                            dep_process = subprocess.run(
-                                dep_cmd,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,
-                                text=True,
-                            )
-                            if dep_process.returncode == 0:
-                                successfully_removed.append(dep)
                 else:
                     results[pkg] = {
                         "status": "error",
@@ -399,7 +494,43 @@ class PackageManager:
                     "message": str(e),
                 }
 
-        # Update dependency files only after successful removals
+        # 移除所有可以安全移除的依賴套件
+        for dep in packages_to_remove:
+            # 跳過已經移除的套件
+            if dep in successfully_removed:
+                continue
+
+            try:
+                # 檢查套件是否仍然安裝
+                dep_version = self._get_installed_version(dep)
+                if dep_version:
+                    # 移除套件
+                    dep_cmd = [str(self._pip_path), "uninstall", "-y", dep]
+                    process = subprocess.run(
+                        dep_cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+
+                    if process.returncode == 0:
+                        successfully_removed.append(dep)
+                        # 如果這個依賴不是主要要求移除的套件，不需要在結果中顯示
+                        if dep not in results:
+                            results[dep] = {
+                                "status": "removed",
+                                "version": dep_version,
+                                "is_dependency": True,
+                            }
+            except Exception as e:
+                if dep not in results:
+                    results[dep] = {
+                        "status": "error",
+                        "message": str(e),
+                        "is_dependency": True,
+                    }
+
+        # 更新依賴文件
         if successfully_removed:
             self._update_dependency_files(removed=successfully_removed)
 
