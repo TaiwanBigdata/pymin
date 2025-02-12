@@ -19,22 +19,17 @@ from .commands.pypi.check_command import check
 from .commands.pypi.search_command import search
 from .commands.pypi.release_command import release
 from .ui.console import (
-    create_package_table,
-    create_dependency_tree,
-    print_error,
-    print_warning,
-    print_success,
+    console,
     print_info,
     print_table,
     create_package_summary,
     create_summary_panel,
     print_tips,
+    display_panel,
 )
 from .ui.style import DEFAULT_PANEL, PanelConfig, StyleType
 from typing import Union, List, Dict
 from .core.version_checker import check_for_updates
-
-console = Console(force_terminal=True, color_system="auto")
 
 # Create package analyzer instance
 pkg_analyzer = PackageAnalyzer()
@@ -57,37 +52,32 @@ class CliGroup(click.Group):
 
     def format_help(self, ctx, formatter):
         """Format help message with styling"""
-        console.print(
-            Panel.fit(
-                "\n".join(
-                    [
-                        "[bold blue]Environment Management:[/bold blue]",
-                        f"  [cyan]info[/cyan]        [dim]Show environment information[/dim]",
-                        f"  [cyan]venv[/cyan]        [dim]Create and activate a virtual environment[/dim] (alias: [cyan]env[/cyan])",
-                        f"  [cyan]activate[/cyan]    [dim]Activate the virtual environment (defaults to current directory's env)[/dim] (alias: [cyan]on[/cyan])",
-                        f"  [cyan]deactivate[/cyan]  [dim]Deactivate the current virtual environment[/dim] (alias: [cyan]off[/cyan])",
-                        "",
-                        "[bold blue]Package Management:[/bold blue]",
-                        f"  [cyan]list[/cyan]        [dim]List installed packages and their dependencies[/dim] ([cyan]-a[/cyan]: all, [cyan]-t[/cyan]: tree) (alias: [cyan]ls[/cyan])",
-                        f"  [cyan]add[/cyan]         [dim]Add or Update packages to requirements.txt or pyproject.toml[/dim] ([cyan]-p[/cyan]: use pyproject.toml)",
-                        f"  [cyan]remove[/cyan]      [dim]Remove packages from requirements.txt and uninstall them[/dim] (alias: [cyan]rm[/cyan])",
-                        f"  [cyan]update[/cyan]      [dim]Update packages to their latest versions[/dim] ([cyan]-a[/cyan]: all, [cyan]--check[/cyan]: check only) (alias: [cyan]up[/cyan])",
-                        f"  [cyan]fix[/cyan]         [dim]Fix package inconsistencies[/dim] ([cyan]-p[/cyan]: use pyproject.toml)",
-                        "",
-                        "[bold blue]PyPI Integration:[/bold blue]",
-                        f"  [cyan]check[/cyan]       [dim]Check package name availability[/dim]",
-                        f"  [cyan]search[/cyan]      [dim]Search for similar package names on PyPI[/dim] ([cyan]-t[/cyan]: threshold)",
-                        f"  [cyan]release[/cyan]     [dim]Build and publish package to PyPI or Test PyPI[/dim] ([cyan]--test[/cyan]: to Test PyPI)",
-                        "",
-                        "[bold blue]Global Options:[/bold blue]",
-                        f"  [cyan]--version[/cyan]   [dim]Show version number[/dim] ([cyan]alias: -V, -v[/cyan])",
-                    ]
-                ),
-                title="PyMin - CLI tool for PyPI package management",
-                title_align=DEFAULT_PANEL.title_align,
-                border_style=DEFAULT_PANEL.border_style,
-                padding=(2, 2),
-            )
+        help_content = [
+            "[bold blue]Environment Management:[/bold blue]",
+            f"  [cyan]info[/cyan]        [dim]Show environment information[/dim]",
+            f"  [cyan]venv[/cyan]        [dim]Create and activate a virtual environment[/dim] (alias: [cyan]env[/cyan])",
+            f"  [cyan]activate[/cyan]    [dim]Activate the virtual environment (defaults to current directory's env)[/dim] (alias: [cyan]on[/cyan])",
+            f"  [cyan]deactivate[/cyan]  [dim]Deactivate the current virtual environment[/dim] (alias: [cyan]off[/cyan])",
+            "",
+            "[bold blue]Package Management:[/bold blue]",
+            f"  [cyan]list[/cyan]        [dim]List installed packages and their dependencies[/dim] ([cyan]-a[/cyan]: all, [cyan]-t[/cyan]: tree) (alias: [cyan]ls[/cyan])",
+            f"  [cyan]add[/cyan]         [dim]Add or Update packages to requirements.txt or pyproject.toml[/dim] ([cyan]-p[/cyan]: use pyproject.toml)",
+            f"  [cyan]remove[/cyan]      [dim]Remove packages from requirements.txt and uninstall them[/dim] (alias: [cyan]rm[/cyan])",
+            f"  [cyan]update[/cyan]      [dim]Update packages to their latest versions[/dim] ([cyan]-a[/cyan]: all, [cyan]--check[/cyan]: check only, [cyan]-y[/cyan]: auto-confirm) (alias: [cyan]up[/cyan])",
+            f"  [cyan]fix[/cyan]         [dim]Fix package inconsistencies[/dim] ([cyan]-p[/cyan]: use pyproject.toml, [cyan]-y[/cyan]: auto-confirm)",
+            "",
+            "[bold blue]PyPI Integration:[/bold blue]",
+            f"  [cyan]check[/cyan]       [dim]Check package name availability[/dim]",
+            f"  [cyan]search[/cyan]      [dim]Search for similar package names on PyPI[/dim] ([cyan]-t[/cyan]: threshold)",
+            f"  [cyan]release[/cyan]     [dim]Build and publish package to PyPI or Test PyPI[/dim] ([cyan]--test[/cyan]: to Test PyPI)",
+            "",
+            "[bold blue]Global Options:[/bold blue]",
+            f"  [cyan]--version[/cyan]   [dim]Show version number[/dim] ([cyan]alias: -V, -v[/cyan])",
+        ]
+
+        display_panel(
+            title="PyMin - CLI tool for PyPI package management",
+            content="\n".join(help_content),
         )
 
 
