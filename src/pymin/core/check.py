@@ -52,7 +52,7 @@ class PackageNameChecker:
 
                 packages = re.findall(r"<a[^>]*>(.*?)</a>", response.text)
                 self._popular_packages_cache = list(set(packages))
-
+                console.print()
                 live.update(
                     Text.from_markup(
                         "[green]✓ Package list fetched successfully!"
@@ -155,8 +155,17 @@ class PackageNameChecker:
                     style="yellow",
                 )
         else:
-            text.append(
-                f"Message: {main_message}", style=f"{status_color} bold"
-            )
+            # For packages that are already in use, make the name clickable
+            if not result["is_available"]:
+                text.append("Message: ", style=f"{status_color} bold")
+                text.append("This package name is already in use at ")
+                pkg_url = f"https://pypi.org/project/{result['name']}"
+                pkg_text = Text(pkg_url, style="blue")
+                pkg_text.stylize(f"link {pkg_url}")
+                text.append(pkg_text)
+            else:
+                text.append(
+                    f"Message: {main_message}", style=f"{status_color} bold"
+                )
 
         display_panel(title="PyPI Package Name Check Results", content=text)

@@ -43,6 +43,7 @@ class PackageSearcher:
 
                 packages = re.findall(r"<a[^>]*>(.*?)</a>", response.text)
                 self._packages_cache = list(set(packages))
+                console.print()
                 live.update(
                     Text.from_markup(
                         "[green]✓ Package list fetched successfully!"

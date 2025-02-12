@@ -48,11 +48,8 @@ def search(name: str, threshold: float):
                 pkg_name, f"{similarity:.2%}", f"[link={url}]{url}[/link]"
             )
 
-        console.print("\n")  # Add empty line
+        console.print()
         console.print(table)
-        console.print(
-            "\n[dim]Tip: Click on package names or URLs to open in browser[/dim]"
-        )
     except Exception as e:
         print_error(f"Failed to search for similar packages: {str(e)}")
         return
