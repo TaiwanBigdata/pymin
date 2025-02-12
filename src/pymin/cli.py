@@ -55,7 +55,7 @@ class CliGroup(click.Group):
         help_content = [
             "[bold blue]Environment Management:[/bold blue]",
             f"  [cyan]info[/cyan]        [dim]Show environment information[/dim]",
-            f"  [cyan]venv[/cyan]        [dim]Create and activate a virtual environment[/dim] (alias: [cyan]env[/cyan])",
+            f"  [cyan]venv[/cyan]        [dim]Create and activate a virtual environment[/dim] ([cyan]-y[/cyan]: auto-confirm) (alias: [cyan]env[/cyan])",
             f"  [cyan]activate[/cyan]    [dim]Activate the virtual environment (defaults to current directory's env)[/dim] (alias: [cyan]on[/cyan])",
             f"  [cyan]deactivate[/cyan]  [dim]Deactivate the current virtual environment[/dim] (alias: [cyan]off[/cyan])",
             "",

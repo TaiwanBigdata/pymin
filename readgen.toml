@@ -106,7 +106,7 @@ PyMin provides a streamlined command interface with intuitive aliases:
 | Command      | Description                                | Alias/Options   |
 |--------------|--------------------------------------------|-----------------|
 | `info`       | Show environment information               |                 |
-| `venv`       | Create a virtual environment               | `env`           |
+| `venv`       | Create a virtual environment               | `env`, -y: auto-confirm |
 | `activate`   | Activate the virtual environment           | `on`            |
 | `deactivate` | Deactivate current virtual environment     | `off`           |
 
@@ -115,7 +115,7 @@ Both `add` and `remove` commands support multiple packages in one operation
 `add` supports version specification using `package==version` format
 | Command    | Description                                | Alias/Options          |
 |------------|--------------------------------------------|------------------------|
-| `list`     | List installed packages                    | -a: all, -t: tree      |
+| `list`     | List installed packages                    | `ls`, -a: all, -t: tree      |
 | `add`      | Add or Update packages                     | -p: use pyproject.toml |
 | `remove`   | Remove packages from requirements.txt      | `rm`                   |
 | `update`   | Update all packages to latest versions     | `up`, -y: auto-confirm |
@@ -144,6 +144,7 @@ $ pm info
 # Create and manage virtual environment
 $ pm venv          # Create with default name 'env'
 $ pm venv my_env   # Create with custom name
+$ pm venv -y       # Create without confirmation
 $ pm env           # Alias for venv
 
 # Activate/Deactivate
