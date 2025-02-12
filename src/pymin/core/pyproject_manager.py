@@ -134,21 +134,22 @@ class PyProjectManager:
         new_dep_list = tomlkit.array()
         new_dep_list.multiline(True)
 
-        # Update or append dependency
-        found = False
+        # Get all dependencies including the new one
+        all_deps = set()
         for dep in dep_list:
             try:
                 current_name, _, _ = self._parse_dependency(dep)
-                if current_name == package_name:
-                    new_dep_list.append(new_dep_str)
-                    found = True
-                else:
-                    new_dep_list.append(dep)
+                if (
+                    current_name != package_name
+                ):  # Skip the package we're updating
+                    all_deps.add(dep)
             except ValueError:
-                new_dep_list.append(dep)
+                all_deps.add(dep)
+        all_deps.add(new_dep_str)
 
-        if not found:
-            new_dep_list.append(new_dep_str)
+        # Sort and add all dependencies
+        for dep in sorted(all_deps):
+            new_dep_list.append(dep)
 
         self.data["project"]["dependencies"] = new_dep_list
         self._write()

@@ -230,12 +230,40 @@ def add(
                     with progress_status(
                         f"Trying latest version {latest_version}..."
                     ):
-                        retry_results = manager.add_packages(
-                            [f"{pkg}=={latest_version}"],
-                            dev=dev,
-                            editable=editable,
-                            no_deps=no_deps,
-                        )
+                        if use_pyproject:
+                            # 暫時禁用 requirements.txt 更新
+                            original_update_requirements = (
+                                manager.package_manager._update_requirements
+                            )
+                            manager.package_manager._update_requirements = (
+                                lambda *args, **kwargs: None
+                            )
+
+                            try:
+                                retry_results = manager.add_packages(
+                                    [f"{pkg}=={latest_version}"],
+                                    dev=dev,
+                                    editable=editable,
+                                    no_deps=no_deps,
+                                )
+                            finally:
+                                # 恢復原始的更新函數
+                                manager.package_manager._update_requirements = (
+                                    original_update_requirements
+                                )
+
+                            # 如果安裝成功，更新 pyproject.toml
+                            retry_info = retry_results.get(pkg, {})
+                            if retry_info.get("status") == "installed":
+                                version = retry_info["version"]
+                                proj_manager.add_dependency(pkg, version, ">=")
+                        else:
+                            retry_results = manager.add_packages(
+                                [f"{pkg}=={latest_version}"],
+                                dev=dev,
+                                editable=editable,
+                                no_deps=no_deps,
+                            )
 
                     # Check retry results
                     retry_info = retry_results.get(pkg, {})
