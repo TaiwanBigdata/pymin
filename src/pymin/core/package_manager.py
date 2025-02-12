@@ -312,6 +312,12 @@ class PackageManager:
         results = {}
         successfully_removed = []
 
+        # 取得所有已安裝的套件資訊
+        all_packages = self._get_installed_packages()
+        # print("all_packages: ", all_packages)
+        # 建立依賴關係映射
+        all_dependencies = self._get_all_dependencies()
+        # print("all_dependencies: ", all_dependencies)
         for pkg in packages:
             try:
                 # Get version before uninstalling
@@ -323,7 +329,24 @@ class PackageManager:
                     }
                     continue
 
-                # Uninstall package
+                # 取得此套件的依賴
+                pkg_deps = set(
+                    all_packages.get(pkg, {}).get("dependencies", [])
+                )
+                # 找出可以移除的依賴（只被此套件使用）
+                removable_deps = set()
+                kept_deps = set()
+
+                for dep in pkg_deps:
+                    dependents = all_dependencies.get(dep, set())
+                    # 移除當前套件
+                    dependents.discard(pkg)
+                    if not dependents:
+                        removable_deps.add(dep)
+                    else:
+                        kept_deps.add(dep)
+
+                # 先移除主套件
                 cmd = [str(self._pip_path), "uninstall", "-y", pkg]
                 process = subprocess.run(
                     cmd,
@@ -336,8 +359,31 @@ class PackageManager:
                     successfully_removed.append(pkg)
                     results[pkg] = {
                         "status": "removed",
-                        "version": version,  # Use the version we got earlier
+                        "version": version,
+                        "dependency_info": {
+                            "removable_deps": list(removable_deps),
+                            "kept_deps": list(kept_deps),
+                        },
                     }
+
+                    # 移除可以移除的依賴
+                    for dep in removable_deps:
+                        dep_version = self._get_installed_version(dep)
+                        if dep_version:
+                            dep_cmd = [
+                                str(self._pip_path),
+                                "uninstall",
+                                "-y",
+                                dep,
+                            ]
+                            dep_process = subprocess.run(
+                                dep_cmd,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,
+                                text=True,
+                            )
+                            if dep_process.returncode == 0:
+                                successfully_removed.append(dep)
                 else:
                     results[pkg] = {
                         "status": "error",
