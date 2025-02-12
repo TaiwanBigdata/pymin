@@ -524,6 +524,112 @@ class PackageManager:
                         break
         return current_version, latest_version
 
+    def auto_fix_install(
+        self,
+        package_name: str,
+        version: Optional[str] = None,
+        *,
+        dev: bool = False,
+        editable: bool = False,
+        no_deps: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Install a package with automatic version fixing if needed.
+
+        Args:
+            package_name: Name of the package to install
+            version: Optional version specification
+            dev: Whether to install as development dependency
+            editable: Whether to install in editable mode
+            no_deps: Whether to skip installing package dependencies
+
+        Returns:
+            Dict containing installation results with status and additional info
+        """
+        # 清理並格式化版本字符串
+        if version:
+            version = str(version).strip()
+            # 如果版本字符串不包含版本約束符號，添加 ==
+            if not any(
+                version.startswith(op)
+                for op in [">=", "<=", "!=", "~=", ">", "<", "=="]
+            ):
+                version = version.lstrip("=").strip()
+                package_spec = f"{package_name}=={version}"
+            else:
+                package_spec = f"{package_name}{version}"
+        else:
+            package_spec = package_name
+
+        # 嘗試安裝
+        results = self.add_packages(
+            [package_spec],
+            dev=dev,
+            editable=editable,
+            no_deps=no_deps,
+        )
+
+        pkg_info = results.get(package_name, {})
+
+        # 如果安裝失敗，檢查是否需要自動修復
+        if pkg_info.get("status") != "installed":
+            error_msg = pkg_info.get("message", "")
+            version_info = pkg_info.get("version_info", {})
+
+            # 檢查是否為版本相關錯誤
+            if (
+                "Version not found" in error_msg
+                or "No matching distribution" in error_msg
+                or "Could not find a version that satisfies the requirement"
+                in error_msg
+            ) and version_info:
+                # 獲取最新版本
+                latest_version = (
+                    version_info["latest_versions"]
+                    .split(",")[0]
+                    .strip()
+                    .replace("[cyan]", "")
+                    .replace("[/cyan]", "")
+                    .replace(" (latest)", "")
+                )
+
+                # 分析更新原因
+                if (
+                    "Python version" in error_msg
+                    or "requires Python" in error_msg
+                ):
+                    update_reason = "Python compatibility issue"
+                elif "dependency conflict" in error_msg:
+                    update_reason = "Dependency conflict"
+                elif (
+                    "not found" in error_msg
+                    or "No matching distribution" in error_msg
+                ):
+                    update_reason = "Version not found"
+                else:
+                    update_reason = "Installation failed"
+
+                # 使用最新版本重試
+                retry_results = self.add_packages(
+                    [f"{package_name}=={latest_version}"],
+                    dev=dev,
+                    editable=editable,
+                    no_deps=no_deps,
+                )
+
+                retry_info = retry_results.get(package_name, {})
+                if retry_info.get("status") == "installed":
+                    retry_info["auto_fixed"] = True
+                    retry_info["original_version"] = version
+                    retry_info["update_reason"] = update_reason
+                    retry_info["installed_version"] = latest_version
+                    return retry_info
+
+                # 如果重試也失敗，返回重試的錯誤信息
+                return retry_info
+
+        return pkg_info
+
 
 def _get_pre_release_type_value(pre_type: str) -> int:
     """Get numeric value for pre-release type for ordering"""

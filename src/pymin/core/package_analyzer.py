@@ -337,6 +337,47 @@ class PackageAnalyzer:
 
         return self._requirements_cache
 
+    def _parse_pyproject_dependencies(self) -> List[DependencyInfo]:
+        """
+        Parse dependencies from pyproject.toml
+
+        Returns:
+            List of DependencyInfo objects
+        """
+        pyproject_file = self.project_path / "pyproject.toml"
+        dependencies = []
+
+        if pyproject_file.exists():
+            try:
+                with open(pyproject_file, "r", encoding="utf-8") as f:
+                    pyproject_data = tomlkit.load(f)
+
+                if (
+                    "project" in pyproject_data
+                    and "dependencies" in pyproject_data["project"]
+                ):
+                    for dep in pyproject_data["project"]["dependencies"]:
+                        try:
+                            req = Requirement(dep)
+                            name = self._normalize_package_name(req.name)
+                            spec = str(req.specifier) if req.specifier else ""
+                            dependencies.append(
+                                DependencyInfo(
+                                    name=name,
+                                    version_spec=spec,
+                                    source=DependencySource.PYPROJECT,
+                                )
+                            )
+                        except Exception as e:
+                            print(
+                                f"Warning: Error processing dependency {dep}: {e}"
+                            )
+                            continue
+            except Exception as e:
+                print(f"Warning: Error reading pyproject.toml: {e}")
+
+        return dependencies
+
     def _check_version_compatibility(
         self, installed_version: str, required_spec: str
     ) -> bool:

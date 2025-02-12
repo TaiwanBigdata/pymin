@@ -11,7 +11,7 @@ VALID_CONSTRAINTS = [">=", "==", "<=", "!=", "~=", ">", "<"]
 
 # Version pattern following PEP 440 and common practices
 VERSION_PATTERN = re.compile(
-    r"^(\d+\.\d+\.\d+)"  # Major.Minor.Patch (required)
+    r"^(\d+\.\d+|\d+\.\d+\.\d+)"  # Major.Minor or Major.Minor.Patch
     r"((a|b|rc|alpha|beta)\d+)?"  # Pre-release version (optional, without dot)
     r"(\.dev\d+)?"  # Development release (optional)
     r"(\.post\d+)?"  # Post-release version (optional)
