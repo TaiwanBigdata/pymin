@@ -1,14 +1,18 @@
 from pathlib import Path
-from typing import Dict, List, Optional, Union, Tuple, Literal
+from typing import Dict, List, Optional, Union, Tuple
 import tomlkit
 from contextlib import contextmanager
-import re
+
+from .version_utils import (
+    VERSION_CONSTRAINTS,
+    VALID_CONSTRAINTS,
+    validate_version,
+    parse_dependency,
+)
 
 
 class PyProjectManager:
     """A class to manage Python project dependencies in pyproject.toml file following PEP 440"""
-
-    VERSION_CONSTRAINTS = Literal[">=", "==", "<=", "!=", "~=", ">", "<"]
 
     def __init__(self, file_path: Union[str, Path]):
         """
@@ -19,18 +23,7 @@ class PyProjectManager:
         """
         self.file_path = Path(file_path)
         self._data: Optional[tomlkit.TOMLDocument] = None
-        # Version pattern following PEP 440 and common practices
-        self._version_pattern = re.compile(
-            r"^(\d+\.\d+\.\d+)"  # Major.Minor.Patch (required)
-            r"((a|b|rc|alpha|beta)\d+)?"  # Pre-release version (optional, without dot)
-            r"(\.dev\d+)?"  # Development release (optional)
-            r"(\.post\d+)?"  # Post-release version (optional)
-            r"(\+[a-zA-Z0-9]+(?:\.[a-zA-Z0-9]+)*)?$"  # Local version identifier (optional)
-        )
-        self._dependency_pattern = re.compile(
-            r"^([a-zA-Z0-9-_.]+)([>=<!~]=?|!=)(.+)$"  # Package name, constraint, version
-        )
-        self.valid_constraints = [">=", "==", "<=", "!=", "~=", ">", "<"]
+        self.valid_constraints = VALID_CONSTRAINTS
 
     @property
     def data(self) -> tomlkit.TOMLDocument:
@@ -62,7 +55,7 @@ class PyProjectManager:
         Returns:
             bool: True if version format is valid
         """
-        return bool(self._version_pattern.match(version))
+        return validate_version(version)
 
     def _parse_dependency(self, dep_str: str) -> Tuple[str, str, str]:
         """
@@ -77,12 +70,7 @@ class PyProjectManager:
         Raises:
             ValueError: If dependency string format is invalid
         """
-        match = self._dependency_pattern.match(dep_str)
-        if not match:
-            raise ValueError(f"Invalid dependency format: {dep_str}")
-
-        package_name, constraint, version = match.groups()
-        return package_name.strip(), constraint, version.strip()
+        return parse_dependency(dep_str)
 
     def _ensure_dependencies_table(self) -> None:
         """Ensure project.dependencies section exists"""

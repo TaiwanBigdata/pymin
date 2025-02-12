@@ -137,9 +137,13 @@ def create_package_table(
         # Handle required version
         required_version = package_data.get("required_version", "")
         if required_version:
-            required_text = Text(
-                required_version.lstrip("="), style=Style(color="blue")
-            )
+            # Handle both string and Text objects
+            if isinstance(required_version, Text):
+                required_text = required_version
+            else:
+                required_text = Text(
+                    required_version.lstrip("="), style=Style(color="blue")
+                )
         elif not package_data.get("is_dependency"):
             required_text = Text("None", style=Style(color="yellow"))
         else:
@@ -221,9 +225,12 @@ def create_dependency_tree(packages: Dict[str, Dict]) -> Table:
 
         # Format version displays
         if required_version:
-            required_text = Text(
-                required_version.lstrip("="), style=Style(color="blue")
-            )
+            if isinstance(required_version, Text):
+                required_text = required_version
+            else:
+                required_text = Text(
+                    required_version.lstrip("="), style=Style(color="blue")
+                )
         elif level == 0 and not data.get("is_dependency"):
             required_text = Text("None", style=Style(color="yellow"))
         else:

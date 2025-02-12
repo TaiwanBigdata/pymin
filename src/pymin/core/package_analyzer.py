@@ -4,8 +4,17 @@ from packaging.requirements import Requirement
 from packaging.version import Version, parse as parse_version
 import importlib.metadata
 from enum import Enum
+import tomlkit
+from pathlib import Path
+from rich.text import Text
 
 from .venv_analyzer import VenvAnalyzer
+from .version_utils import (
+    check_version_compatibility,
+    normalize_package_name,
+    parse_dependency,
+    validate_version,
+)
 
 
 class PackageStatus(str, Enum):
@@ -23,8 +32,9 @@ class PackageStatus(str, Enum):
     )
     NOT_IN_REQUIREMENTS = "not_in_requirements"  # Package is installed but not in requirements.txt
     VERSION_MISMATCH = (
-        "version_mismatch"  # Installed version doesn't match requirements.txt
+        "version_mismatch"  # Installed version doesn't match requirements
     )
+    VERSION_CONFLICT = "version_conflict"  # Version conflict between pyproject.toml and requirements.txt
 
     def __str__(self) -> str:
         return self.value
@@ -37,9 +47,140 @@ class PackageStatus(str, Enum):
             cls.NORMAL: "Package is properly installed and listed in requirements.txt",
             cls.NOT_INSTALLED: "Package is listed in requirements.txt but not installed",
             cls.NOT_IN_REQUIREMENTS: "Package is installed but not listed in requirements.txt",
-            cls.VERSION_MISMATCH: "Installed package version does not match requirements.txt",
+            cls.VERSION_MISMATCH: "Installed package version does not match requirements",
+            cls.VERSION_CONFLICT: "Version conflict between pyproject.toml and requirements.txt",
         }
         return descriptions.get(status, "Unknown status")
+
+
+class DependencySource(str, Enum):
+    """
+    Dependency source enumeration
+    """
+
+    REQUIREMENTS = "r"  # From requirements.txt
+    PYPROJECT = "p"  # From pyproject.toml
+    BOTH = "p+r"  # From both files
+
+    def __str__(self) -> str:
+        return self.value
+
+    @classmethod
+    def combine(cls, sources: Set["DependencySource"]) -> "DependencySource":
+        """Combine multiple sources into one"""
+        if len(sources) == 2:
+            return cls.BOTH
+        return next(iter(sources))
+
+
+class DependencyInfo:
+    """
+    Dependency information container
+    """
+
+    def __init__(self, name: str, version_spec: str, source: DependencySource):
+        self.name = name
+        self._version_spec = version_spec
+        self.source = source
+        self._pyproject_version = None
+        self._requirements_version = None
+
+    def set_version(self, version: str, source: DependencySource):
+        """Set version for specific source"""
+        if source == DependencySource.PYPROJECT:
+            self._pyproject_version = version
+        elif source == DependencySource.REQUIREMENTS:
+            self._requirements_version = version
+
+    def _format_version_with_source(
+        self, version: str, source_tag: str, color: str
+    ) -> Text:
+        """Format version with colored source tag"""
+        # 統一移除版本約束，只保留版本號
+        for constraint in [">=", "==", "<=", "!=", "~=", ">", "<"]:
+            if version.startswith(constraint):
+                version = version[len(constraint) :].strip()
+                break
+
+        # Create a Text object for proper color formatting
+        text = Text()
+        text.append(version)
+        text.append(" (", style="dim")
+        text.append(source_tag, style=color)
+        text.append(")", style="dim")
+        return text
+
+    def format_version(self) -> Text:
+        """Format version with source indicator"""
+        if self.source == DependencySource.BOTH:
+            # 先清理版本號
+            p_version = self._clean_version(self._pyproject_version)
+            r_version = self._clean_version(self._requirements_version)
+
+            # Show both versions if they differ
+            if p_version != r_version:
+                r_text = self._format_version_with_source(
+                    self._requirements_version, "r", "yellow"
+                )
+                p_text = self._format_version_with_source(
+                    self._pyproject_version, "p", "cyan"
+                )
+
+                # Combine the texts
+                combined = Text()
+                combined.append(r_text)
+                combined.append(" / ")
+                combined.append(p_text)
+                return combined
+
+            # If versions are the same, show with both indicators
+            return self._format_version_with_source(
+                self._version_spec, "r+p", "green"
+            )
+        elif self.source == DependencySource.PYPROJECT:
+            return self._format_version_with_source(
+                self._version_spec, "p", "cyan"
+            )
+        else:  # REQUIREMENTS
+            return self._format_version_with_source(
+                self._version_spec, "r", "yellow"
+            )
+
+    def _clean_version(self, version: str) -> str:
+        """Clean version string by removing constraints"""
+        if version is None:
+            return ""
+        for constraint in [">=", "==", "<=", "!=", "~=", ">", "<"]:
+            if version.startswith(constraint):
+                return version[len(constraint) :].strip()
+        return version
+
+    @property
+    def has_version_conflict(self) -> bool:
+        """Check if there's a version conflict between sources"""
+        if (
+            self._pyproject_version is None
+            or self._requirements_version is None
+        ):
+            return False
+
+        p_version = self._clean_version(self._pyproject_version)
+        r_version = self._clean_version(self._requirements_version)
+
+        return p_version != r_version
+
+    @property
+    def version_spec(self) -> str:
+        """Get version spec without source indicator"""
+        if self.source == DependencySource.BOTH and self.has_version_conflict:
+            return (
+                self._requirements_version
+            )  # 優先使用 requirements.txt 的版本
+        return self._version_spec
+
+    @version_spec.setter
+    def version_spec(self, value: str):
+        self._version_spec = value
 
 
 class PackageAnalyzer:
@@ -82,17 +223,36 @@ class PackageAnalyzer:
         self._packages_cache = None
         self._requirements_cache = None
 
-    def _parse_requirements(self) -> Dict[str, str]:
+    def _parse_version_spec(self, spec: str) -> Tuple[str, str]:
         """
-        Parse requirements.txt file and return package names with their version specs
+        Parse version specification into constraint and version
+
+        Args:
+            spec: Version specification (e.g., ">=8.0.0")
 
         Returns:
-            Dictionary mapping package names to version specifications
+            Tuple of (constraint, version)
+        """
+        constraints = [">=", "==", "<=", "!=", "~=", ">", "<"]
+        for constraint in sorted(constraints, key=len, reverse=True):
+            if spec.startswith(constraint):
+                version = spec[len(constraint) :].strip()
+                return constraint, version
+        return "", spec
+
+    def _parse_requirements(self) -> Dict[str, DependencyInfo]:
+        """
+        Parse requirements.txt and pyproject.toml files and return package information
+
+        Returns:
+            Dictionary mapping package names to DependencyInfo objects
         """
         if self._requirements_cache is None:
             self._requirements_cache = {}
-            req_file = self.project_path / "requirements.txt"
+            sources: Dict[str, Set[DependencySource]] = {}
 
+            # Parse requirements.txt
+            req_file = self.project_path / "requirements.txt"
             if req_file.exists():
                 with open(req_file, "r", encoding="utf-8") as f:
                     for line in f:
@@ -100,13 +260,80 @@ class PackageAnalyzer:
                         if line and not line.startswith("#"):
                             try:
                                 req = Requirement(line)
-                                self._requirements_cache[
-                                    self._normalize_package_name(req.name)
-                                ] = (
+                                name = self._normalize_package_name(req.name)
+                                spec = (
                                     str(req.specifier) if req.specifier else ""
                                 )
-                            except:
+
+                                if name not in sources:
+                                    sources[name] = set()
+                                sources[name].add(DependencySource.REQUIREMENTS)
+
+                                if name not in self._requirements_cache:
+                                    self._requirements_cache[name] = (
+                                        DependencyInfo(
+                                            name=name,
+                                            version_spec=spec,
+                                            source=DependencySource.REQUIREMENTS,
+                                        )
+                                    )
+                                self._requirements_cache[name].set_version(
+                                    spec, DependencySource.REQUIREMENTS
+                                )
+                            except Exception as e:
+                                print(
+                                    f"Warning: Error processing requirement {line}: {e}"
+                                )
                                 continue
+
+            # Parse pyproject.toml
+            pyproject_file = self.project_path / "pyproject.toml"
+            if pyproject_file.exists():
+                try:
+                    with open(pyproject_file, "r", encoding="utf-8") as f:
+                        pyproject_data = tomlkit.load(f)
+
+                    if (
+                        "project" in pyproject_data
+                        and "dependencies" in pyproject_data["project"]
+                    ):
+                        for dep in pyproject_data["project"]["dependencies"]:
+                            try:
+                                req = Requirement(dep)
+                                name = self._normalize_package_name(req.name)
+                                spec = (
+                                    str(req.specifier) if req.specifier else ""
+                                )
+
+                                if name not in sources:
+                                    sources[name] = set()
+                                sources[name].add(DependencySource.PYPROJECT)
+
+                                if name not in self._requirements_cache:
+                                    self._requirements_cache[name] = (
+                                        DependencyInfo(
+                                            name=name,
+                                            version_spec=spec,
+                                            source=DependencySource.PYPROJECT,
+                                        )
+                                    )
+                                self._requirements_cache[name].set_version(
+                                    spec, DependencySource.PYPROJECT
+                                )
+                            except Exception as e:
+                                print(
+                                    f"Warning: Error processing dependency {dep}: {e}"
+                                )
+                                continue
+                except Exception as e:
+                    print(f"Warning: Error reading pyproject.toml: {e}")
+
+            # Update sources for packages that appear in both files
+            for name, src_set in sources.items():
+                if name in self._requirements_cache:
+                    self._requirements_cache[name].source = (
+                        DependencySource.combine(src_set)
+                    )
 
         return self._requirements_cache
 
@@ -120,17 +347,7 @@ class PackageAnalyzer:
             installed_version: Currently installed version
             required_spec: Version specification from requirements.txt
         """
-        if not required_spec:
-            return True
-
-        try:
-            from packaging.specifiers import SpecifierSet
-
-            return parse_version(installed_version) in SpecifierSet(
-                required_spec
-            )
-        except:
-            return False
+        return check_version_compatibility(installed_version, required_spec)
 
     @staticmethod
     def _normalize_package_name(name: str) -> str:
@@ -140,7 +357,7 @@ class PackageAnalyzer:
         Args:
             name: Package name to normalize
         """
-        return name.lower().replace("_", "-")
+        return normalize_package_name(name)
 
     @staticmethod
     def _get_system_packages() -> Set[str]:
@@ -206,7 +423,7 @@ class PackageAnalyzer:
         self,
         pkg_name: str,
         installed_packages: Dict,
-        requirements: Dict,
+        requirements: Dict[str, DependencyInfo],
         all_dependencies: Set[str],
     ) -> Dict:
         """
@@ -214,19 +431,26 @@ class PackageAnalyzer:
         """
         pkg_info = installed_packages.get(pkg_name, {})
         installed_version = pkg_info.get("installed_version")
-        required_version = requirements.get(pkg_name, "")
+        dep_info = requirements.get(pkg_name)
+
+        # Format required version with source indicator
+        required_version = dep_info.format_version() if dep_info else None
+        version_for_check = dep_info.version_spec if dep_info else ""
 
         is_installed = pkg_name in installed_packages
 
+        # Determine package status
         if not is_installed and pkg_name in requirements:
             status = PackageStatus.NOT_INSTALLED
         elif pkg_name in all_dependencies and pkg_name in requirements:
             status = PackageStatus.REDUNDANT
         elif is_installed and pkg_name not in requirements:
             status = PackageStatus.NOT_IN_REQUIREMENTS
-        elif is_installed and required_version:
+        elif dep_info and dep_info.has_version_conflict:
+            status = PackageStatus.VERSION_CONFLICT
+        elif is_installed and version_for_check:
             if not self._check_version_compatibility(
-                installed_version, required_version
+                installed_version, version_for_check
             ):
                 status = PackageStatus.VERSION_MISMATCH
             else:
@@ -237,7 +461,7 @@ class PackageAnalyzer:
         return {
             "name": pkg_info.get("name", pkg_name),
             "installed_version": installed_version,
-            "required_version": required_version if required_version else None,
+            "required_version": required_version,
             "dependencies": sorted(pkg_info.get("dependencies", [])),
             "status": status.value,
         }
