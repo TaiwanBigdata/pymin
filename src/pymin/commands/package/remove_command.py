@@ -35,7 +35,7 @@ def remove(packages: List[str]):
             return
 
         with progress_status("Removing packages..."):
-            # Remove packages from requirements.txt and uninstall them
+            # Remove packages from both requirements.txt and pyproject.toml
             results = manager.remove_packages(packages)
 
         # Display results
@@ -51,7 +51,7 @@ def remove(packages: List[str]):
             info = results[pkg]
             if info["status"] == "removed":
                 console.print(
-                    f"[green]{SymbolType.SUCCESS}[/green] Removed [cyan]{pkg}=={info['version']}[/cyan]"
+                    f"[bold][green]{SymbolType.SUCCESS}[/green] Removed [cyan]{pkg}=={info['version']}[/cyan][/bold]"
                 )
 
                 # Show dependency information
@@ -115,18 +115,16 @@ def remove(packages: List[str]):
                                 f"[dim]Kept dependencies:  {', '.join(deps_with_versions)}[/dim]"
                             )
 
-                console.print()  # Add a blank line after each main package
-
             elif info["status"] == "not_found":
                 console.print(
                     f"[yellow]{SymbolType.WARNING}[/yellow] [cyan]{pkg}[/cyan]: {info['message']}"
                 )
-                console.print()
             else:
                 console.print(
                     f"[red]{SymbolType.ERROR}[/red] Failed to remove [cyan]{pkg}[/cyan]: {info.get('message', 'Unknown error')}"
                 )
-                console.print()
+
+        console.print()
 
     except Exception as e:
         print_error(f"Failed to remove packages: {str(e)}")

@@ -69,7 +69,7 @@ class CliGroup(click.Group):
                         "",
                         "[bold blue]Package Management:[/bold blue]",
                         f"  [cyan]list[/cyan]        [dim]List installed packages and their dependencies[/dim] ([cyan]-a[/cyan]: all, [cyan]-t[/cyan]: tree) (alias: [cyan]ls[/cyan])",
-                        f"  [cyan]add[/cyan]         [dim]Add packages to requirements.txt and install them[/dim]",
+                        f"  [cyan]add[/cyan]         [dim]Add packages to requirements.txt or pyproject.toml[/dim] ([cyan]-p[/cyan]: use pyproject.toml)",
                         f"  [cyan]remove[/cyan]      [dim]Remove packages from requirements.txt and uninstall them[/dim] (alias: [cyan]rm[/cyan])",
                         f"  [cyan]update[/cyan]      [dim]Update packages to their latest versions[/dim] ([cyan]-a[/cyan]: all, [cyan]--check[/cyan]: check only) (alias: [cyan]up[/cyan])",
                         f"  [cyan]fix[/cyan]         [dim]Fix package inconsistencies[/dim]",

@@ -12,6 +12,7 @@ from rich.style import Style
 from .package_analyzer import PackageAnalyzer
 from packaging import version
 import re
+import requests
 
 
 class PackageManager:
@@ -94,6 +95,55 @@ class PackageManager:
 
         return tree
 
+    def _update_dependency_files(
+        self, *, added: List[str] = None, removed: List[str] = None
+    ) -> None:
+        """Update all dependency files (requirements.txt and pyproject.toml)
+
+        Args:
+            added: List of packages that were added
+            removed: List of packages that were removed
+        """
+        # Update requirements.txt
+        if added:
+            self._update_requirements(added=added)
+        if removed:
+            self._update_requirements(removed=removed)
+
+        # Update pyproject.toml if exists
+        pyproject_path = Path("pyproject.toml")
+        if pyproject_path.exists():
+            from .pyproject_manager import PyProjectManager
+
+            proj_manager = PyProjectManager(pyproject_path)
+
+            if added:
+                for pkg_spec in added:
+                    try:
+                        # Parse package spec (e.g., "package==1.0.0" or "package")
+                        if "==" in pkg_spec:
+                            pkg_name, version = pkg_spec.split("==")
+                        else:
+                            pkg_name = pkg_spec
+                            # Get installed version
+                            version = self._get_installed_version(pkg_name)
+
+                        if version:
+                            proj_manager.add_dependency(pkg_name, version, ">=")
+                    except Exception as e:
+                        print_warning(
+                            f"Warning: Failed to add {pkg_name} to pyproject.toml: {str(e)}"
+                        )
+
+            if removed:
+                for pkg_name in removed:
+                    try:
+                        proj_manager.remove_dependency(pkg_name)
+                    except Exception as e:
+                        print_warning(
+                            f"Warning: Failed to remove {pkg_name} from pyproject.toml: {str(e)}"
+                        )
+
     def add_packages(
         self,
         packages: List[str],
@@ -105,34 +155,35 @@ class PackageManager:
         """Add packages to the virtual environment
 
         Args:
-            packages: List of packages to install, each can include version specifier
-            dev: Whether to install as development dependencies
+            packages: List of packages to add
+            dev: Whether to install as development dependency
             editable: Whether to install in editable mode
-            no_deps: Whether to skip dependencies installation
+            no_deps: Whether to skip installing package dependencies
 
         Returns:
             Dict with installation results for each package
         """
         results = {}
+        successfully_added = []
 
-        # 1. Parse package specifications
+        # Parse package specifications
         package_specs = [self._parse_package_spec(pkg) for pkg in packages]
 
-        # 2. Install packages one by one
         for pkg_name, pkg_version in package_specs:
             try:
-                # Construct pip command
+                # Install package
                 cmd = [str(self._pip_path), "install"]
                 if editable:
                     cmd.append("-e")
                 if no_deps:
                     cmd.append("--no-deps")
+
+                # Construct package spec
                 pkg_spec = (
                     f"{pkg_name}=={pkg_version}" if pkg_version else pkg_name
                 )
                 cmd.append(pkg_spec)
 
-                # First try: capture output to check for pip upgrade notice
                 process = subprocess.run(
                     cmd,
                     stdout=subprocess.PIPE,
@@ -140,27 +191,8 @@ class PackageManager:
                     text=True,
                 )
 
-                # If we get a pip upgrade notice, try again
-                if (
-                    process.returncode != 0
-                    and "new release of pip available" in process.stderr.lower()
-                ):
-                    self._check_pip_upgrade(process.stderr)
-                    # Second try: capture output again
-                    process = subprocess.run(
-                        cmd,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                        check=True,
-                    )
-
-                # If installation was successful
-                if (
-                    process.returncode == 0
-                    or "Successfully installed" in process.stdout
-                ):
-                    # Get installed version
+                if process.returncode == 0:
+                    # Get installed version and dependencies
                     self.package_analyzer.clear_cache()
                     packages_after = (
                         self.package_analyzer.get_installed_packages()
@@ -176,158 +208,91 @@ class PackageManager:
                             break
 
                     if matching_pkg:
+                        version = pkg_info["installed_version"]
+                        successfully_added.append(f"{matching_pkg}=={version}")
                         results[matching_pkg] = {
                             "status": "installed",
-                            "version": pkg_info["installed_version"],
+                            "version": version,
                             "dependencies": sorted(pkg_info["dependencies"]),
-                            "existing_dependencies": [],
                             "new_dependencies": sorted(
                                 pkg_info["dependencies"]
                             ),
                         }
-
-                        # Update requirements.txt
-                        self._update_requirements(
-                            added=[
-                                f"{matching_pkg}=={pkg_info['installed_version']}"
-                            ],
-                            dev=dev,
-                        )
-                    else:
-                        # Try to get the version from pip list
-                        try:
-                            pip_list = subprocess.run(
-                                [str(self._pip_path), "list", "--format=json"],
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,
-                                text=True,
-                                check=True,
-                            )
-                            packages_list = eval(pip_list.stdout)
-                            for pkg in packages_list:
-                                if pkg["name"].lower() == pkg_name.lower():
-                                    results[pkg["name"]] = {
-                                        "status": "installed",
-                                        "version": pkg["version"],
-                                        "dependencies": [],
-                                        "existing_dependencies": [],
-                                        "new_dependencies": [],
-                                    }
-                                    # Update requirements.txt
-                                    self._update_requirements(
-                                        added=[
-                                            f"{pkg['name']}=={pkg['version']}"
-                                        ],
-                                        dev=dev,
-                                    )
-                                    break
-                            else:
-                                results[pkg_name] = {
-                                    "status": "error",
-                                    "message": "Package not found after installation",
-                                }
-                        except Exception:
-                            results[pkg_name] = {
-                                "status": "error",
-                                "message": "Package not found after installation",
-                            }
                 else:
-                    # Extract available versions from pip error message
-                    available_versions = []
-                    version_list_started = False
+                    # Extract version information from pip's error output
+                    error_output = (
+                        process.stderr if process.stderr else "Unknown error"
+                    )
+                    version_info = {}
 
-                    for line in process.stderr.split("\n"):
-                        if "from versions:" in line:
-                            version_list = (
-                                line.split("from versions:", 1)[1]
-                                .strip("() ")
-                                .split(", ")
-                            )
-                            available_versions = [
-                                v.strip() for v in version_list if v.strip()
-                            ]
-                            break
+                    # Try to get available versions from error message
+                    if (
+                        "Could not find a version that satisfies the requirement"
+                        in error_output
+                    ):
+                        try:
+                            # Extract versions from error message
+                            versions = []
+                            for line in error_output.split("\n"):
+                                if "from versions:" in line:
+                                    versions_str = line.split(
+                                        "from versions:", 1
+                                    )[1].strip()
+                                    versions = [
+                                        v.strip()
+                                        for v in versions_str.strip("()").split(
+                                            ","
+                                        )
+                                    ]
+                                    break
 
-                    if available_versions:
-                        # Sort versions using packaging.version
-                        sorted_versions = sorted(
-                            available_versions, key=lambda v: version.parse(v)
-                        )
-                        latest_versions = sorted_versions[-5:]
-
-                        # Find versions close to the requested version
-                        if pkg_version:
-                            # Get closest available versions
-                            close_versions = sorted(
-                                sorted_versions,
-                                key=lambda v: get_version_distance(
-                                    v, pkg_version
-                                ),
-                            )[:5]
-
-                            # Add version suggestions to error message
-                            # Show latest versions in one line
-                            latest_ver_list = ", ".join(
-                                f"[cyan]{v}[/cyan]"
-                                + (
-                                    " (latest)"
-                                    if v == latest_versions[-1]
-                                    else ""
+                            if versions:
+                                version_info["latest_versions"] = ", ".join(
+                                    f"[cyan]{v}[/cyan]"
+                                    for v in versions[-3:][::-1]
                                 )
-                                for v in reversed(latest_versions)
-                            )
-
-                            # Show similar versions in one line
-                            similar_ver_list = ", ".join(
-                                f"[cyan]{v}[/cyan]"
-                                + (
-                                    " (closest)"
-                                    if v == close_versions[0]
-                                    else ""
+                                version_info["similar_versions"] = ", ".join(
+                                    f"[cyan]{v}[/cyan]"
+                                    for v in versions[-6:-3][::-1]
                                 )
-                                for v in close_versions
-                            )
-
-                            # Store version information for later use
-                            version_info = {
-                                "latest_versions": latest_ver_list,
-                                "similar_versions": similar_ver_list,
-                            }
-
-                            # Show pip upgrade notice if needed
-                            if (
-                                "new release of pip available"
-                                in process.stderr.lower()
-                            ):
-                                current_ver, latest_ver = (
-                                    self._get_pip_versions(process.stderr)
+                        except Exception:
+                            # If parsing fails, try to get from PyPI
+                            try:
+                                response = requests.get(
+                                    f"https://pypi.org/pypi/{pkg_name}/json"
                                 )
-                                if current_ver and latest_ver:
-                                    console.print(
-                                        f"\n[yellow]Pip update available:[/yellow] {current_ver} -> {latest_ver}"
+                                if response.status_code == 200:
+                                    data = response.json()
+                                    versions = sorted(
+                                        data["releases"].keys(), reverse=True
                                     )
-                                    console.print(
-                                        "[dim]Run: pip install --upgrade pip[/dim]"
+                                    version_info["latest_versions"] = ", ".join(
+                                        f"[cyan]{v}[/cyan]"
+                                        for v in versions[:3]
                                     )
+                                    version_info["similar_versions"] = (
+                                        ", ".join(
+                                            f"[cyan]{v}[/cyan]"
+                                            for v in versions[3:6]
+                                        )
+                                    )
+                            except Exception:
+                                pass
 
                     results[pkg_name] = {
                         "status": "error",
-                        "message": "Version not found",
-                        "version_info": (
-                            version_info if "version_info" in locals() else None
-                        ),
+                        "message": error_output,
+                        "version_info": version_info,
                     }
-
-            except subprocess.CalledProcessError as e:
-                results[pkg_name] = {
-                    "status": "error",
-                    "message": e.stderr if e.stderr else str(e),
-                }
             except Exception as e:
                 results[pkg_name] = {
                     "status": "error",
                     "message": str(e),
                 }
+
+        # Update dependency files only after successful installations
+        if successfully_added:
+            self._update_dependency_files(added=successfully_added)
 
         return results
 
@@ -344,85 +309,20 @@ class PackageManager:
             Dict with removal results for each package
         """
         results = {}
+        successfully_removed = []
 
-        # Clear cache to get fresh package information
-        self.package_analyzer.clear_cache()
-
-        # Get package information from analyzer
-        installed_packages = self.package_analyzer.get_installed_packages()
-
-        # Create a case-insensitive lookup dictionary using normalized names
-        pkg_case_map = {
-            self.package_analyzer._normalize_package_name(pkg): pkg
-            for pkg in installed_packages.keys()
-        }
-
-        # Get all dependencies
-        all_dependencies = self._get_all_dependencies()
-        packages_to_remove = set()
-        dependency_info = {}
-
-        # 1. Check each package
         for pkg in packages:
-            # Normalize the package name
-            pkg_normalized = self.package_analyzer._normalize_package_name(pkg)
-
-            # Try to find the actual package name with correct case
-            actual_pkg_name = pkg_case_map.get(pkg_normalized)
-
-            if not actual_pkg_name:
-                results[pkg] = {
-                    "status": "not_found",
-                    "message": "Package not installed",
-                }
-                continue
-
-            # Add the main package to removal list
-            packages_to_remove.add(actual_pkg_name)
-
-            # Check its dependencies
-            pkg_info = installed_packages[actual_pkg_name]
-            pkg_deps = pkg_info.get("dependencies", [])
-            removable_deps = set()
-            kept_deps = set()
-
-            # For each dependency
-            for dep in pkg_deps:
-                # If dependency exists in installed packages
-                if dep in installed_packages:
-                    # Check if it's used by other packages
-                    other_dependents = all_dependencies.get(dep, set()) - {
-                        actual_pkg_name
-                    }
-                    if not other_dependents:
-                        removable_deps.add(dep)
-                    else:
-                        kept_deps.add(dep)
-                        if dep not in dependency_info:
-                            dependency_info[dep] = {
-                                "kept_for": list(other_dependents)
-                            }
-
-            # Store dependency information
-            dependency_info[actual_pkg_name] = {
-                "removable_deps": list(removable_deps),
-                "kept_deps": list(kept_deps),
-                **{
-                    dep: dependency_info[dep]
-                    for dep in kept_deps
-                    if dep in dependency_info
-                },
-            }
-
-        # 2. Remove packages
-        for pkg in packages_to_remove:
             try:
-                # Get removable dependencies before removing the main package
-                pkg_info = installed_packages[pkg]
-                dep_info = dependency_info.get(pkg, {})
-                removable_deps = dep_info.get("removable_deps", [])
+                # Get version before uninstalling
+                version = self._get_installed_version(pkg)
+                if not version:
+                    results[pkg] = {
+                        "status": "not_found",
+                        "message": "Package not installed",
+                    }
+                    continue
 
-                # First remove the main package
+                # Uninstall package
                 cmd = [str(self._pip_path), "uninstall", "-y", pkg]
                 process = subprocess.run(
                     cmd,
@@ -432,44 +332,29 @@ class PackageManager:
                 )
 
                 if process.returncode == 0:
-                    # Then remove its removable dependencies
-                    for dep in removable_deps:
-                        dep_cmd = [str(self._pip_path), "uninstall", "-y", dep]
-                        dep_process = subprocess.run(
-                            dep_cmd,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE,
-                            text=True,
-                        )
-                        if dep_process.returncode != 0:
-                            print_warning(
-                                f"Warning: Failed to remove dependency {dep}"
-                            )
-
+                    successfully_removed.append(pkg)
                     results[pkg] = {
                         "status": "removed",
-                        "version": pkg_info["installed_version"],
-                        "dependencies": pkg_info["dependencies"],
-                        "dependency_info": dependency_info.get(pkg, {}),
+                        "version": version,  # Use the version we got earlier
                     }
-
-                    # Update requirements.txt
-                    self._update_requirements(removed=[pkg])
                 else:
                     results[pkg] = {
                         "status": "error",
                         "message": (
                             process.stderr
                             if process.stderr
-                            else "Unknown error during uninstallation"
+                            else "Unknown error"
                         ),
                     }
-
             except Exception as e:
                 results[pkg] = {
                     "status": "error",
                     "message": str(e),
                 }
+
+        # Update dependency files only after successful removals
+        if successfully_removed:
+            self._update_dependency_files(removed=successfully_removed)
 
         return results
 
