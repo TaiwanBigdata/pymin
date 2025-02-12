@@ -76,7 +76,7 @@ class CliGroup(click.Group):
         ]
 
         display_panel(
-            title="PyMin - CLI tool for PyPI package management",
+            title=f"PyMin ({__version__}) - CLI tool for PyPI package management",
             content="\n".join(help_content),
         )
 

@@ -9,7 +9,13 @@ from rich.text import Text
 from rich.live import Live
 from .validators import PackageNameValidator
 from .security import SecurityChecker
-from ..ui.console import print_error, print_warning, print_success, console
+from ..ui.console import (
+    print_error,
+    print_warning,
+    print_success,
+    console,
+    display_panel,
+)
 
 
 class PackageNameChecker:
@@ -153,11 +159,4 @@ class PackageNameChecker:
                 f"Message: {main_message}", style=f"{status_color} bold"
             )
 
-        console.print(
-            Panel.fit(
-                text,
-                title="PyPI Package Name Check Results",
-                title_align="left",
-                border_style="blue",
-            )
-        )
+        display_panel(title="PyPI Package Name Check Results", content=text)
