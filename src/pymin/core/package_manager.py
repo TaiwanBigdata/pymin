@@ -300,7 +300,7 @@ class PackageManager:
     def get_packages_to_remove(self, package_names: List[str]) -> Set[str]:
         """
         取得可以安全移除的套件集合。
-        一個套件可以被移除，如果它只被目標套件所依賴，且不是 required package。
+        一個套件可以被移除，如果它只被目標套件所依賴。
 
         Args:
             package_names: 要移除的套件名稱列表
@@ -311,31 +311,67 @@ class PackageManager:
         # 初始化集合
         packages_to_remove = set(package_names)
         checked_packages = set()
-        all_dependencies = self._get_all_dependencies()
-        installed_packages = self._get_installed_packages()
+        dependency_tree = self.package_analyzer.get_dependency_tree()
 
-        # 取得 required packages
-        required_packages = set()
-        pyproject_path = Path("pyproject.toml")
-        if pyproject_path.exists():
-            from .pyproject_manager import PyProjectManager
-
-            proj_manager = PyProjectManager(pyproject_path)
-            required_packages = {
-                normalize_package_name(name)
-                for name in proj_manager.get_dependencies().keys()
-            }
-
-        def is_safe_to_remove(pkg: str, chain: Set[str] = None) -> bool:
+        def build_dependency_maps() -> (
+            Tuple[Dict[str, Set[str]], Dict[str, Set[str]]]
+        ):
             """
-            檢查套件是否可以安全移除
+            建立兩個映射：
+            1. used_by_map: 誰使用了這個套件 (反向依賴)
+            2. depends_on_map: 這個套件依賴哪些套件 (正向依賴)
+            """
+            used_by_map = {}  # pkg -> set of pkgs that use it
+            depends_on_map = {}  # pkg -> set of pkgs it depends on
+            visited = set()  # 用來追蹤已處理的套件
 
-            Args:
-                pkg: 要檢查的套件名稱
-                chain: 檢查鏈，用於避免循環依賴
+            def build_maps(
+                pkg_name: str, deps_info: Dict, chain: Set[str] = None
+            ):
+                if chain is None:
+                    chain = set()
+                if pkg_name in chain:  # 避免循環依賴
+                    return
+                if pkg_name in visited:  # 避免重複處理
+                    return
 
-            Returns:
-                bool: 是否可以安全移除
+                chain.add(pkg_name)
+                visited.add(pkg_name)  # 標記為已處理
+
+                deps = deps_info.get("dependencies", {})
+                for dep_name, dep_info in deps.items():
+                    # 記錄誰使用了這個依賴
+                    if dep_name not in used_by_map:
+                        used_by_map[dep_name] = set()
+                    used_by_map[dep_name].add(pkg_name)
+
+                    # 記錄這個套件依賴誰
+                    if pkg_name not in depends_on_map:
+                        depends_on_map[pkg_name] = set()
+                    depends_on_map[pkg_name].add(dep_name)
+
+                    # 遞迴處理這個依賴的依賴
+                    if dep_name not in visited:
+                        build_maps(
+                            dep_name, dep_info, chain.copy()
+                        )  # 使用 chain 的副本
+
+                chain.remove(pkg_name)  # 移除當前套件,回溯時使用
+
+            # 從頂層套件開始建立映射
+            for pkg_name, pkg_info in dependency_tree.items():
+                if pkg_name not in visited:
+                    build_maps(pkg_name, pkg_info, set())
+
+            return used_by_map, depends_on_map
+
+        def is_safe_to_remove(
+            pkg: str, used_by_map: Dict[str, Set[str]], chain: Set[str] = None
+        ) -> bool:
+            """
+            判斷一個套件是否可以安全移除：
+            1. 如果沒有人使用它，可以移除
+            2. 如果使用它的套件都在移除列表中，可以移除
             """
             if chain is None:
                 chain = set()
@@ -344,64 +380,62 @@ class PackageManager:
             if pkg in chain:
                 return False
 
-            # 檢查是否為 required package
-            if normalize_package_name(pkg) in required_packages:
-                return False
+            # 取得所有使用這個套件的套件
+            users = used_by_map.get(pkg, set())
 
-            chain.add(pkg)
-
-            # 檢查是否有其他套件依賴此套件
-            dependents = all_dependencies.get(pkg, set())
-
-            # 移除將要被移除的套件
-            remaining_dependents = dependents - packages_to_remove
-
-            # 如果沒有其他依賴，可以安全移除
-            if not remaining_dependents:
+            # 如果沒有人使用，可以移除
+            if not users:
                 return True
 
-            # 檢查每個依賴此套件的套件
-            for dependent in remaining_dependents:
-                # 如果依賴的套件不在移除列表中，則不能移除
-                if dependent not in packages_to_remove:
-                    return False
-
-                # 遞迴檢查依賴的套件
-                if not is_safe_to_remove(dependent, chain):
-                    return False
+            # 檢查所有使用者是否都在移除列表中或可以被移除
+            chain.add(pkg)
+            for user in users:
+                if user not in packages_to_remove and user not in chain:
+                    if not is_safe_to_remove(user, used_by_map, chain):
+                        chain.remove(pkg)
+                        return False
+            chain.remove(pkg)
 
             return True
 
-        def check_dependencies(pkg: str) -> None:
+        def get_all_dependencies(
+            pkg: str, deps_map: Dict[str, Set[str]], visited: Set[str] = None
+        ) -> Set[str]:
             """
-            遞迴檢查套件的依賴
-
-            Args:
-                pkg: 要檢查的套件名稱
+            取得一個套件的所有依賴（包含間接依賴）
             """
-            if pkg in checked_packages:
-                return
+            if visited is None:
+                visited = set()
+            if pkg in visited:
+                return set()
 
-            checked_packages.add(pkg)
+            visited.add(pkg)
+            deps = deps_map.get(pkg, set())
+            all_deps = deps.copy()
 
-            # 取得套件的直接依賴
-            pkg_info = installed_packages.get(pkg)
-            if not pkg_info:
-                return
+            for dep in deps:
+                if dep not in visited:
+                    all_deps.update(
+                        get_all_dependencies(dep, deps_map, visited)
+                    )
 
-            for dep in pkg_info["dependencies"]:
-                # 如果依賴已經在移除列表中，跳過
-                if dep in packages_to_remove:
-                    continue
+            return all_deps
 
-                # 檢查依賴是否可以安全移除
-                if is_safe_to_remove(dep):
-                    packages_to_remove.add(dep)
-                    check_dependencies(dep)
+        # 建立依賴映射
+        used_by_map, depends_on_map = build_dependency_maps()
 
-        # 從所有目標套件開始檢查
-        for package_name in package_names:
-            check_dependencies(package_name)
+        # 檢查每個要移除的套件
+        for pkg in package_names:
+            if pkg not in checked_packages:
+                # 檢查這個套件是否可以安全移除
+                if is_safe_to_remove(pkg, used_by_map):
+                    # 取得這個套件的所有依賴
+                    deps = get_all_dependencies(pkg, depends_on_map)
+                    # 檢查每個依賴是否也可以安全移除
+                    for dep in deps:
+                        if is_safe_to_remove(dep, used_by_map):
+                            packages_to_remove.add(dep)
+                checked_packages.add(pkg)
 
         return packages_to_remove
 
@@ -409,130 +443,121 @@ class PackageManager:
         self,
         packages: List[str],
     ) -> Dict[str, Dict[str, Any]]:
-        """Remove packages from the virtual environment
+        """
+        移除套件及其不再需要的依賴
 
         Args:
-            packages: List of packages to remove
+            packages: 要移除的套件列表
 
         Returns:
-            Dict with removal results for each package
+            移除結果的字典
         """
         results = {}
-        successfully_removed = []
-
-        # 取得所有已安裝的套件資訊
-        all_packages = self._get_installed_packages()
-        # 建立依賴關係映射
-        all_dependencies = self._get_all_dependencies()
+        dependency_tree = self.package_analyzer.get_dependency_tree()
 
         # 取得所有可以安全移除的套件
         packages_to_remove = self.get_packages_to_remove(packages)
 
-        # 先處理主要要求移除的套件
-        for pkg in packages:
+        # 對於每個要移除的套件
+        for pkg_name in packages:
+            pkg_info = dependency_tree.get(pkg_name, {})
+            if not pkg_info:
+                results[pkg_name] = {
+                    "status": "not_found",
+                    "message": f"Package {pkg_name} is not installed",
+                }
+                continue
+
             try:
-                # 取得版本資訊
-                version = self._get_installed_version(pkg)
-                if not version:
-                    results[pkg] = {
-                        "status": "not_found",
-                        "message": "Package not installed",
-                    }
-                    continue
-
-                # 取得此套件的依賴資訊
-                pkg_deps = set(
-                    all_packages.get(pkg, {}).get("dependencies", [])
-                )
-                removable_deps = set()
-                kept_deps = {}
-
-                # 檢查每個依賴
-                for dep in pkg_deps:
-                    if dep in packages_to_remove:
-                        removable_deps.add(dep)
-                    else:
-                        # 記錄保留原因
-                        dependents = (
-                            all_dependencies.get(dep, set())
-                            - packages_to_remove
-                        )
-                        if dependents:
-                            kept_deps[dep] = sorted(dependents)
-
-                # 移除套件
-                cmd = [str(self._pip_path), "uninstall", "-y", pkg]
+                # 執行 pip uninstall
                 process = subprocess.run(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    [str(self._pip_path), "uninstall", "-y", pkg_name],
+                    capture_output=True,
                     text=True,
                 )
 
                 if process.returncode == 0:
-                    successfully_removed.append(pkg)
-                    results[pkg] = {
+                    # 收集依賴資訊
+                    removable_deps = set()
+                    kept_deps = {}
+
+                    # 檢查每個依賴
+                    for dep_name, dep_info in pkg_info.get(
+                        "dependencies", {}
+                    ).items():
+                        if dep_name in packages_to_remove:
+                            removable_deps.add(dep_name)
+                        else:
+                            # 找出為什麼這個依賴被保留
+                            kept_for = set()
+                            for top_pkg, top_info in dependency_tree.items():
+                                if top_pkg == pkg_name:
+                                    continue
+
+                                def find_dep_in_tree(deps_info: Dict) -> bool:
+                                    if not deps_info:
+                                        return False
+                                    if dep_name in deps_info.get(
+                                        "dependencies", {}
+                                    ):
+                                        return True
+                                    for d_info in deps_info.get(
+                                        "dependencies", {}
+                                    ).values():
+                                        if find_dep_in_tree(d_info):
+                                            return True
+                                    return False
+
+                                if find_dep_in_tree(top_info):
+                                    kept_for.add(top_pkg)
+
+                            if kept_for:
+                                kept_deps[dep_name] = {
+                                    "kept_for": sorted(kept_for)
+                                }
+
+                    results[pkg_name] = {
                         "status": "removed",
-                        "version": version,
+                        "version": pkg_info.get("installed_version"),
                         "dependency_info": {
-                            "removable_deps": sorted(removable_deps),
+                            "removable_deps": removable_deps,
                             "kept_deps": kept_deps,
                         },
                     }
+
+                    # 移除可移除的依賴
+                    for dep in removable_deps:
+                        if dep not in results:  # 避免重複移除
+                            try:
+                                subprocess.run(
+                                    [
+                                        str(self._pip_path),
+                                        "uninstall",
+                                        "-y",
+                                        dep,
+                                    ],
+                                    capture_output=True,
+                                    text=True,
+                                )
+                            except Exception as e:
+                                print(
+                                    f"Warning: Failed to remove dependency {dep}: {str(e)}"
+                                )
+
                 else:
-                    results[pkg] = {
+                    results[pkg_name] = {
                         "status": "error",
-                        "message": (
-                            process.stderr
-                            if process.stderr
-                            else "Unknown error"
-                        ),
+                        "message": process.stderr,
                     }
+
             except Exception as e:
-                results[pkg] = {
+                results[pkg_name] = {
                     "status": "error",
                     "message": str(e),
                 }
 
-        # 移除所有可以安全移除的依賴套件
-        for dep in packages_to_remove:
-            # 跳過已經移除的套件
-            if dep in successfully_removed:
-                continue
-
-            try:
-                # 檢查套件是否仍然安裝
-                dep_version = self._get_installed_version(dep)
-                if dep_version:
-                    # 移除套件
-                    dep_cmd = [str(self._pip_path), "uninstall", "-y", dep]
-                    process = subprocess.run(
-                        dep_cmd,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                    )
-
-                    if process.returncode == 0:
-                        successfully_removed.append(dep)
-                        # 如果這個依賴不是主要要求移除的套件，不需要在結果中顯示
-                        if dep not in results:
-                            results[dep] = {
-                                "status": "removed",
-                                "version": dep_version,
-                                "is_dependency": True,
-                            }
-            except Exception as e:
-                if dep not in results:
-                    results[dep] = {
-                        "status": "error",
-                        "message": str(e),
-                        "is_dependency": True,
-                    }
-
-        # 更新依賴文件
-        if successfully_removed:
-            self._update_dependency_files(removed=successfully_removed)
+        # 更新 requirements.txt
+        self._update_requirements(removed=list(packages_to_remove))
 
         return results
 
