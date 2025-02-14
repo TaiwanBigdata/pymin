@@ -6,6 +6,7 @@ from enum import Enum
 from dataclasses import dataclass
 from typing import Optional
 from pathlib import Path
+from rich.text import Text
 
 
 class Colors(str, Enum):
@@ -110,7 +111,10 @@ class SymbolType(str, Enum):
     REDUNDANT = "⚠"
     NOT_INSTALLED = "✗"
     NOT_IN_REQUIREMENTS = "△"
-    VERSION_MISMATCH = "≠"
+    VERSION_MISMATCH = "≠"  # Installed version doesn't match required version
+    VERSION_CONFLICT = (
+        "⇄"  # Version conflict between requirements.txt and pyproject.toml
+    )
     ARROW = "→"
     BULLET = "•"
     TREE_BRANCH = "├──"
@@ -134,25 +138,32 @@ THEME = Theme(
 )
 
 
-def get_status_symbol(status: str) -> str:
-    """Get status symbol for given status"""
-    try:
-        # Special case for missing packages
-        if status.lower() == "missing":
-            return SymbolType.NOT_INSTALLED
-        return SymbolType[status.upper()]
-    except KeyError:
-        return (
-            SymbolType.NOT_INSTALLED
-        )  # Default to NOT_INSTALLED symbol for unknown status
+def get_status_symbol(status: str) -> Text:
+    """Get status symbol with consistent styling
 
+    Args:
+        status: Package status string
 
-def get_style(style_name: str) -> Style:
-    """Get style for given style name"""
-    try:
-        return StyleType[style_name.upper()].value
-    except KeyError:
-        return Style()
+    Returns:
+        Rich Text object with appropriate symbol and style
+    """
+    status = status.lower()
+    if status == "normal":
+        return Text(SymbolType.SUCCESS, style=StyleType.SUCCESS)
+    elif status == "version_conflict":
+        return Text(
+            SymbolType.VERSION_CONFLICT, style=Style(color="red", bold=True)
+        )
+    elif status == "version_mismatch":
+        return Text(SymbolType.VERSION_MISMATCH, style=StyleType.ERROR)
+    elif status == "not_installed" or status == "missing":
+        return Text(SymbolType.ERROR, style=StyleType.ERROR)
+    elif status == "not_in_requirements":
+        return Text(SymbolType.WARNING, style=StyleType.WARNING)
+    elif status == "redundant":
+        return Text(SymbolType.WARNING, style=StyleType.WARNING)
+    else:
+        return Text(SymbolType.ERROR, style=StyleType.ERROR)
 
 
 def format_env_switch(from_env: Optional[Path], to_env: Optional[Path]) -> str:

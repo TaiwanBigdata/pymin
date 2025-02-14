@@ -12,7 +12,6 @@ from ..ui.style import (
     StyleType,
     SymbolType,
     get_status_symbol,
-    get_style,
     DEFAULT_PANEL,
     DEFAULT_TABLE,
     Style,
@@ -152,9 +151,6 @@ def create_package_table(
 
         # Handle installed version
         installed_version = package_data.get("installed_version", "")
-        status = package_data.get("status", "")
-        status_style = get_style(status)
-
         if installed_version:
             installed_text = Text(installed_version, style=Style(color="cyan"))
         else:
@@ -162,12 +158,8 @@ def create_package_table(
         styled_row.append(installed_text)
 
         # Handle status
-        status_symbol = get_status_symbol(status)
-        if status in ["missing", "version_mismatch"]:
-            status_text = Text(status_symbol, style=StyleType.ERROR)
-        else:
-            status_text = Text(status_symbol, style=status_style)
-        styled_row.append(status_text)
+        status = package_data.get("status", "")
+        styled_row.append(get_status_symbol(status))
 
         # Add the row to the table with appropriate styling
         if package_data.get("is_dependency"):
@@ -251,8 +243,7 @@ def create_dependency_tree(packages: Dict[str, Dict]) -> Table:
 
         # Get status and format package name
         status = data.get("status", "")
-        status_style = get_style(status)
-        status_symbol = Text(get_status_symbol(status), style=status_style)
+        status_symbol = get_status_symbol(status)
 
         # Create display name with styled redundant suffix
         if level == 0 and status == "redundant":
@@ -367,6 +358,7 @@ def create_package_summary(
         "missing": "Missing",
         "redundant": "Redundant",
         "version_mismatch": "Version Mismatch",
+        "version_conflict": "Version Conflict",
         "not_in_requirements": "Not in Requirements",
     }
 
@@ -376,6 +368,7 @@ def create_package_summary(
         "missing": "red",
         "redundant": "yellow",
         "version_mismatch": "red",
+        "version_conflict": "red bold",
         "not_in_requirements": "yellow",
     }
 
@@ -388,6 +381,7 @@ def create_package_summary(
         "missing": 0,  # ✗ 在 requirements.txt 但未安裝
         "redundant": 0,  # ⚠ 在 requirements.txt 且是依賴
         "version_mismatch": 0,  # ≠ 版本不符
+        "version_conflict": 0,  # ⇄ requirements.txt 和 pyproject.toml 版本衝突
         "not_in_requirements": 0,  # ! 已安裝但不在 requirements.txt
     }
 
@@ -480,6 +474,7 @@ def create_package_summary(
         "normal",
         "missing",
         "redundant",
+        "version_conflict",
         "version_mismatch",
         "not_in_requirements",
     ]
