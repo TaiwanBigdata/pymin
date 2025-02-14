@@ -358,7 +358,6 @@ def create_package_summary(
         "missing": "Missing",
         "redundant": "Redundant",
         "version_mismatch": "Version Mismatch",
-        "version_conflict": "Version Conflict",
         "not_in_requirements": "Not in Requirements",
     }
 
@@ -368,7 +367,6 @@ def create_package_summary(
         "missing": "red",
         "redundant": "yellow",
         "version_mismatch": "red",
-        "version_conflict": "red bold",
         "not_in_requirements": "yellow",
     }
 
@@ -381,7 +379,6 @@ def create_package_summary(
         "missing": 0,  # ✗ 在 requirements.txt 但未安裝
         "redundant": 0,  # ⚠ 在 requirements.txt 且是依賴
         "version_mismatch": 0,  # ≠ 版本不符
-        "version_conflict": 0,  # ⇄ requirements.txt 和 pyproject.toml 版本衝突
         "not_in_requirements": 0,  # ! 已安裝但不在 requirements.txt
     }
 
@@ -474,7 +471,6 @@ def create_package_summary(
         "normal",
         "missing",
         "redundant",
-        "version_conflict",
         "version_mismatch",
         "not_in_requirements",
     ]

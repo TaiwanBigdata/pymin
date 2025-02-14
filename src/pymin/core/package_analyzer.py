@@ -35,7 +35,6 @@ class PackageStatus(str, Enum):
     VERSION_MISMATCH = (
         "version_mismatch"  # Installed version doesn't match requirements
     )
-    VERSION_CONFLICT = "version_conflict"  # Version conflict between pyproject.toml and requirements.txt
 
     def __str__(self) -> str:
         return self.value
@@ -49,7 +48,6 @@ class PackageStatus(str, Enum):
             cls.NOT_INSTALLED: "Package is listed in requirements.txt but not installed",
             cls.NOT_IN_REQUIREMENTS: "Package is installed but not listed in requirements.txt",
             cls.VERSION_MISMATCH: "Installed package version does not match requirements",
-            cls.VERSION_CONFLICT: "Version conflict between pyproject.toml and requirements.txt",
         }
         return descriptions.get(status, "Unknown status")
 
@@ -83,15 +81,11 @@ class DependencyInfo:
         self.name = name
         self._version_spec = version_spec
         self.source = source
-        self._pyproject_version = None
-        self._requirements_version = None
+        self.versions: Dict[DependencySource, str] = {}
 
     def set_version(self, version: str, source: DependencySource):
         """Set version for specific source"""
-        if source == DependencySource.PYPROJECT:
-            self._pyproject_version = version
-        elif source == DependencySource.REQUIREMENTS:
-            self._requirements_version = version
+        self.versions[source] = version
 
     def get_version_info(self) -> Dict[str, Dict[str, str]]:
         """
@@ -106,37 +100,19 @@ class DependencyInfo:
         """
         result = {}
 
-        # 處理 pyproject.toml 的版本資訊
-        if self._pyproject_version:
-            try:
-                _, constraint, version = parse_requirement_string(
-                    self._pyproject_version
-                )
-                result["pyproject"] = {
-                    "constraint": constraint,
-                    "version": version,
-                }
-            except ValueError:
-                result["pyproject"] = {
-                    "constraint": "",
-                    "version": self._pyproject_version,
-                }
-
-        # 處理 requirements.txt 的版本資訊
-        if self._requirements_version:
-            try:
-                _, constraint, version = parse_requirement_string(
-                    self._requirements_version
-                )
-                result["requirements"] = {
-                    "constraint": constraint,
-                    "version": version,
-                }
-            except ValueError:
-                result["requirements"] = {
-                    "constraint": "",
-                    "version": self._requirements_version,
-                }
+        for source, version in self.versions.items():
+            if version:
+                try:
+                    constraint, _ = parse_requirement_string(version)
+                    result[source.value] = {
+                        "constraint": constraint,
+                        "version": version,
+                    }
+                except ValueError:
+                    result[source.value] = {
+                        "constraint": "",
+                        "version": version,
+                    }
 
         return result
 
@@ -162,16 +138,20 @@ class DependencyInfo:
         """Format version with source indicator"""
         if self.source == DependencySource.BOTH:
             # 先清理版本號
-            p_version = self._clean_version(self._pyproject_version)
-            r_version = self._clean_version(self._requirements_version)
+            p_version = self._clean_version(
+                self.versions.get(DependencySource.PYPROJECT)
+            )
+            r_version = self._clean_version(
+                self.versions.get(DependencySource.REQUIREMENTS)
+            )
 
             # Show both versions if they differ
             if p_version != r_version:
                 r_text = self._format_version_with_source(
-                    self._requirements_version, "r", "yellow"
+                    r_version, "r", "yellow"
                 )
                 p_text = self._format_version_with_source(
-                    self._pyproject_version, "p", "cyan"
+                    p_version, "p", "cyan"
                 )
 
                 # Combine the texts
@@ -204,26 +184,7 @@ class DependencyInfo:
         return version
 
     @property
-    def has_version_conflict(self) -> bool:
-        """Check if there's a version conflict between sources"""
-        if (
-            self._pyproject_version is None
-            or self._requirements_version is None
-        ):
-            return False
-
-        p_version = self._clean_version(self._pyproject_version)
-        r_version = self._clean_version(self._requirements_version)
-
-        return p_version != r_version
-
-    @property
     def version_spec(self) -> str:
-        """Get version spec without source indicator"""
-        if self.source == DependencySource.BOTH and self.has_version_conflict:
-            return (
-                self._requirements_version
-            )  # 優先使用 requirements.txt 的版本
         return self._version_spec
 
     @version_spec.setter
@@ -534,8 +495,6 @@ class PackageAnalyzer:
             status = PackageStatus.REDUNDANT
         elif is_installed and pkg_name not in requirements:
             status = PackageStatus.NOT_IN_REQUIREMENTS
-        elif dep_info and dep_info.has_version_conflict:
-            status = PackageStatus.VERSION_CONFLICT
         elif is_installed and version_for_check:
             if not self._check_version_compatibility(
                 installed_version, version_for_check

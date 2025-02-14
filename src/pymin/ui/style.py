@@ -112,9 +112,6 @@ class SymbolType(str, Enum):
     NOT_INSTALLED = "✗"
     NOT_IN_REQUIREMENTS = "△"
     VERSION_MISMATCH = "≠"  # Installed version doesn't match required version
-    VERSION_CONFLICT = (
-        "⇄"  # Version conflict between requirements.txt and pyproject.toml
-    )
     ARROW = "→"
     BULLET = "•"
     TREE_BRANCH = "├──"
@@ -150,10 +147,6 @@ def get_status_symbol(status: str) -> Text:
     status = status.lower()
     if status == "normal":
         return Text(SymbolType.SUCCESS, style=StyleType.SUCCESS)
-    elif status == "version_conflict":
-        return Text(
-            SymbolType.VERSION_CONFLICT, style=Style(color="red", bold=True)
-        )
     elif status == "version_mismatch":
         return Text(SymbolType.VERSION_MISMATCH, style=StyleType.ERROR)
     elif status == "not_installed" or status == "missing":
