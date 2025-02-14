@@ -16,6 +16,7 @@ from ...ui.console import (
     console,
     progress_status,
     create_summary_panel,
+    print_info,
 )
 from ...ui.style import SymbolType
 from rich.text import Text
@@ -34,14 +35,7 @@ pkg_analyzer = PackageAnalyzer()
     is_flag=True,
     help="Automatically confirm all fixes",
 )
-@click.option(
-    "-p",
-    "--pyproject",
-    "use_pyproject",
-    is_flag=True,
-    help="Use pyproject.toml instead of requirements.txt",
-)
-def fix(yes: bool = False, use_pyproject: bool = False):
+def fix(yes: bool = False):
     """Fix package inconsistencies"""
     try:
         manager = VenvManager()
@@ -53,12 +47,9 @@ def fix(yes: bool = False, use_pyproject: bool = False):
             )
             return
 
-        # If using pyproject.toml, validate it exists
-        if use_pyproject:
-            pyproject_path = Path("pyproject.toml")
-            if not pyproject_path.exists():
-                print_error("No pyproject.toml found in current directory")
-                return
+        # Determine which configuration file to use
+        use_pyproject, reason = pkg_analyzer.determine_config_source()
+        print_info(reason)
 
         # Get package information
         with progress_status("Analyzing packages..."):

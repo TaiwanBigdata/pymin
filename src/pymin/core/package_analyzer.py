@@ -227,6 +227,36 @@ class PackageAnalyzer:
         self._packages_cache = None
         self._requirements_cache = None
 
+    def determine_config_source(self) -> Tuple[bool, str]:
+        """
+        Determine which configuration file to use based on project state.
+
+        Returns:
+            Tuple[bool, str]: (use_pyproject, reason)
+            - use_pyproject: True if should use pyproject.toml, False for requirements.txt
+            - reason: A string explaining why this choice was made
+        """
+        pyproject_exists = (self.project_path / "pyproject.toml").exists()
+        requirements_exists = (self.project_path / "requirements.txt").exists()
+
+        if pyproject_exists and requirements_exists:
+            return (
+                True,
+                "Using pyproject.toml (both files exist, preferring pyproject.toml)",
+            )
+        elif pyproject_exists:
+            return True, "Using pyproject.toml (only pyproject.toml exists)"
+        elif requirements_exists:
+            return (
+                False,
+                "Using requirements.txt (only requirements.txt exists)",
+            )
+        else:
+            return (
+                False,
+                "Using requirements.txt (no configuration files exist, will create requirements.txt)",
+            )
+
     def clear_cache(self):
         """Clear the package and requirements cache"""
         self._packages_cache = None

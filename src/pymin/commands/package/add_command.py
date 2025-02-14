@@ -1,7 +1,7 @@
 """Add packages command"""
 
 import click
-from typing import List, Dict
+from typing import List, Dict, Tuple
 from ...core.venv_manager import VenvManager
 from ...core.package_analyzer import PackageAnalyzer
 from ...ui.console import (
@@ -11,6 +11,7 @@ from ...ui.console import (
     console,
     progress_status,
     print_tips,
+    print_info,
 )
 from ...ui.style import SymbolType
 from pathlib import Path
@@ -19,60 +20,33 @@ from pathlib import Path
 pkg_analyzer = PackageAnalyzer()
 
 
-@click.command(context_settings={"ignore_unknown_options": True})
-@click.pass_context
-@click.option(
-    "-p",
-    "--pyproject",
-    "use_pyproject",
-    is_flag=True,
-    default=False,
-    help="Add packages to pyproject.toml instead of requirements.txt",
-)
-@click.argument("packages", nargs=-1, required=True)
-@click.option(
-    "--dev",
-    is_flag=True,
-    default=False,
-    help="Install as development dependency",
-)
+@click.command()
+@click.argument("packages", nargs=-1)
 @click.option(
     "-e",
     "--editable",
     is_flag=True,
-    default=False,
-    help="Install in editable mode",
+    help="Install the package in editable mode",
 )
 @click.option(
-    "--no-deps",
+    "-d",
+    "--dev",
     is_flag=True,
-    default=False,
-    help="Don't install package dependencies",
+    help="Add as development dependency",
+)
+@click.option(
+    "-y",
+    "--yes",
+    is_flag=True,
+    help="Skip confirmation",
 )
 def add(
-    ctx: click.Context,
-    use_pyproject: bool,
-    packages: List[str],
-    dev: bool,
-    editable: bool,
-    no_deps: bool,
+    packages: Tuple[str, ...],
+    editable: bool = False,
+    dev: bool = False,
+    yes: bool = False,
 ):
-    """Add packages to the virtual environment
-
-    PACKAGES: One or more package names to add
-    """
-    # 處理參數，確保 -p 選項被正確識別
-    args = list(packages)
-    if "-p" in args:
-        use_pyproject = True
-        args.remove("-p")
-    elif "--pyproject" in args:
-        use_pyproject = True
-        args.remove("--pyproject")
-
-    # 過濾掉其他選項
-    filtered_packages = [p for p in args if not p.startswith("-")]
-
+    """Add packages to the project"""
     try:
         manager = VenvManager()
 
@@ -83,17 +57,17 @@ def add(
             )
             return
 
-        # If using pyproject.toml, validate it exists
-        if use_pyproject:
-            pyproject_path = Path("pyproject.toml")
-            if not pyproject_path.exists():
-                print_error("No pyproject.toml found in current directory")
-                return
+        # Determine which configuration file to use
+        use_pyproject, reason = pkg_analyzer.determine_config_source()
+        print_info(reason)
 
-            # Initialize PyProjectManager
-            from ...core.pyproject_manager import PyProjectManager
+        # Handle editable installs
+        args = list(packages)
+        if editable:
+            args = ["-e"] + args
 
-            proj_manager = PyProjectManager(pyproject_path)
+        # 過濾掉其他選項
+        filtered_packages = [p for p in args if not p.startswith("-")]
 
         with progress_status("Installing packages..."):
             # Install packages without updating requirements.txt if using pyproject.toml
@@ -111,7 +85,6 @@ def add(
                         filtered_packages,
                         dev=dev,
                         editable=editable,
-                        no_deps=no_deps,
                     )
                 finally:
                     # 恢復原始的更新函數
@@ -124,15 +97,7 @@ def add(
                     filtered_packages,
                     dev=dev,
                     editable=editable,
-                    no_deps=no_deps,
                 )
-
-            # If using pyproject.toml, add to dependencies
-            if use_pyproject and results:
-                for pkg, info in results.items():
-                    if info["status"] == "installed":
-                        version = info["version"]
-                        proj_manager.add_dependency(pkg, version, ">=")
 
         # Display results
         console.print()
@@ -244,7 +209,6 @@ def add(
                                     [f"{pkg}=={latest_version}"],
                                     dev=dev,
                                     editable=editable,
-                                    no_deps=no_deps,
                                 )
                             finally:
                                 # 恢復原始的更新函數
@@ -256,13 +220,20 @@ def add(
                             retry_info = retry_results.get(pkg, {})
                             if retry_info.get("status") == "installed":
                                 version = retry_info["version"]
+                                # Initialize PyProjectManager
+                                from ...core.pyproject_manager import (
+                                    PyProjectManager,
+                                )
+
+                                proj_manager = PyProjectManager(
+                                    Path("pyproject.toml")
+                                )
                                 proj_manager.add_dependency(pkg, version, ">=")
                         else:
                             retry_results = manager.add_packages(
                                 [f"{pkg}=={latest_version}"],
                                 dev=dev,
                                 editable=editable,
-                                no_deps=no_deps,
                             )
 
                     # Check retry results
