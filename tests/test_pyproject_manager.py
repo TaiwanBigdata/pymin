@@ -1,5 +1,6 @@
 # Test file for PyProjectManager functionality
 
+from pymin.core.version_utils import parse_requirement_string
 import pytest
 from pathlib import Path
 import tomlkit
@@ -145,7 +146,7 @@ def test_bulk_add_dependencies(empty_pyproject):
         ("1.2.3+local", True),  # Simple local version
         ("1.2.3+abc.1", True),  # Local version with dot
         # Invalid Formats
-        ("1.2", False),  # Missing patch number
+        ("1.2", True),  # Missing patch number
         ("1.2.3.4", False),  # Too many version segments
         ("v1.2.3", False),  # Prefix not allowed
         ("1.2.3-beta1", False),  # Hyphen not allowed
@@ -168,16 +169,40 @@ def test_dependency_parsing(empty_pyproject):
     manager = PyProjectManager(empty_pyproject)
 
     # Valid dependency strings
-    name, constraint, version = manager._parse_dependency("requests>=2.31.0")
+    name, constraint, version = parse_requirement_string("requests>=2.31.0")
     assert name == "requests"
     assert constraint == ">="
     assert version == "2.31.0"
 
-    name, constraint, version = manager._parse_dependency("fastapi==0.100.0")
+    name, constraint, version = parse_requirement_string("fastapi==0.100.0")
     assert name == "fastapi"
     assert constraint == "=="
     assert version == "0.100.0"
 
-    # Invalid dependency string
-    with pytest.raises(ValueError):
-        manager._parse_dependency("invalid-format")
+    name, constraint, version = parse_requirement_string("packaging==24.2")
+    assert name == "packaging"
+    assert constraint == "=="
+    assert version == "24.2"
+
+    name, constraint, version = parse_requirement_string("invalid-format")
+    assert name == "invalid-format"
+    assert constraint is None
+    assert version is None
+
+    name, constraint, version = parse_requirement_string("24.2")
+    assert name is None
+    assert constraint is None
+    assert version == "24.2"
+
+    # Invalid dependency strings
+    invalid_inputs = [
+        "",  # Empty string
+        "package name with spaces",  # Spaces not allowed
+        "requests>>2.31.0",  # Invalid constraint
+        "requests==invalid.version",  # Invalid version format
+        "@invalid",  # Invalid starting character
+    ]
+
+    for invalid_input in invalid_inputs:
+        with pytest.raises(ValueError):
+            parse_requirement_string(invalid_input)

@@ -12,8 +12,9 @@ from .venv_analyzer import VenvAnalyzer
 from .version_utils import (
     check_version_compatibility,
     normalize_package_name,
-    parse_dependency,
+    parse_requirement_string,
     validate_version,
+    VALID_CONSTRAINTS,
 )
 
 
@@ -92,12 +93,59 @@ class DependencyInfo:
         elif source == DependencySource.REQUIREMENTS:
             self._requirements_version = version
 
+    def get_version_info(self) -> Dict[str, Dict[str, str]]:
+        """
+        Get version information for each source
+
+        Returns:
+            Dict with format:
+            {
+                "pyproject": {"constraint": ">=", "version": "1.0.0"},
+                "requirements": {"constraint": "==", "version": "1.0.0"}
+            }
+        """
+        result = {}
+
+        # 處理 pyproject.toml 的版本資訊
+        if self._pyproject_version:
+            try:
+                _, constraint, version = parse_requirement_string(
+                    self._pyproject_version
+                )
+                result["pyproject"] = {
+                    "constraint": constraint,
+                    "version": version,
+                }
+            except ValueError:
+                result["pyproject"] = {
+                    "constraint": "",
+                    "version": self._pyproject_version,
+                }
+
+        # 處理 requirements.txt 的版本資訊
+        if self._requirements_version:
+            try:
+                _, constraint, version = parse_requirement_string(
+                    self._requirements_version
+                )
+                result["requirements"] = {
+                    "constraint": constraint,
+                    "version": version,
+                }
+            except ValueError:
+                result["requirements"] = {
+                    "constraint": "",
+                    "version": self._requirements_version,
+                }
+
+        return result
+
     def _format_version_with_source(
         self, version: str, source_tag: str, color: str
     ) -> Text:
         """Format version with colored source tag"""
         # 統一移除版本約束，只保留版本號
-        for constraint in [">=", "==", "<=", "!=", "~=", ">", "<"]:
+        for constraint in VALID_CONSTRAINTS:
             if version.startswith(constraint):
                 version = version[len(constraint) :].strip()
                 break
@@ -150,7 +198,7 @@ class DependencyInfo:
         """Clean version string by removing constraints"""
         if version is None:
             return ""
-        for constraint in [">=", "==", "<=", "!=", "~=", ">", "<"]:
+        for constraint in VALID_CONSTRAINTS:
             if version.startswith(constraint):
                 return version[len(constraint) :].strip()
         return version
@@ -233,8 +281,7 @@ class PackageAnalyzer:
         Returns:
             Tuple of (constraint, version)
         """
-        constraints = [">=", "==", "<=", "!=", "~=", ">", "<"]
-        for constraint in sorted(constraints, key=len, reverse=True):
+        for constraint in VALID_CONSTRAINTS:
             if spec.startswith(constraint):
                 version = spec[len(constraint) :].strip()
                 return constraint, version

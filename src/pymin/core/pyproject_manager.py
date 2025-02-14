@@ -6,8 +6,8 @@ from contextlib import contextmanager
 from .version_utils import (
     VERSION_CONSTRAINTS,
     VALID_CONSTRAINTS,
+    parse_requirement_string,
     validate_version,
-    parse_dependency,
     normalize_package_name,
 )
 from .package_analyzer import PackageAnalyzer
@@ -58,21 +58,6 @@ class PyProjectManager:
             bool: True if version format is valid
         """
         return validate_version(version)
-
-    def _parse_dependency(self, dep_str: str) -> Tuple[str, str, str]:
-        """
-        Parse dependency string into components
-
-        Args:
-            dep_str: Dependency string (e.g., 'pytest>=7.0.0')
-
-        Returns:
-            Tuple[str, str, str]: Package name, constraint, version
-
-        Raises:
-            ValueError: If dependency string format is invalid
-        """
-        return parse_dependency(dep_str)
 
     def _ensure_dependencies_table(self) -> None:
         """Ensure project.dependencies section exists"""
@@ -141,7 +126,7 @@ class PyProjectManager:
         all_deps = set()
         for dep in dep_list:
             try:
-                current_name, _, _ = self._parse_dependency(dep)
+                current_name, _, _ = parse_requirement_string(dep)
                 if normalize_package_name(current_name) != normalized_name:
                     all_deps.add(dep)
             except ValueError:
@@ -172,7 +157,7 @@ class PyProjectManager:
 
             for dep in dep_list:
                 try:
-                    current_name, _, _ = self._parse_dependency(dep)
+                    current_name, _, _ = parse_requirement_string(dep)
                     if (
                         normalize_package_name(current_name)
                         != normalized_remove_name
@@ -219,7 +204,9 @@ class PyProjectManager:
         result = {}
         for dep in self.data["project"]["dependencies"]:
             try:
-                package_name, constraint, version = self._parse_dependency(dep)
+                package_name, constraint, version = parse_requirement_string(
+                    dep
+                )
                 result[package_name] = (constraint, version)
             except ValueError:
                 continue

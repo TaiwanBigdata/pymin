@@ -1,7 +1,7 @@
 """Version utilities for package management"""
 
 import re
-from typing import Tuple, List, Literal
+from typing import Tuple, List, Literal, Optional
 from packaging.version import Version, parse as parse_version
 from packaging.specifiers import SpecifierSet
 
@@ -37,25 +37,55 @@ def validate_version(version: str) -> bool:
     return bool(VERSION_PATTERN.match(version))
 
 
-def parse_dependency(dep_str: str) -> Tuple[str, str, str]:
+def parse_requirement_string(
+    spec: str,
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
-    Parse dependency string into components
+    Parse package requirement string into components following PEP 440.
 
     Args:
-        dep_str: Dependency string (e.g., 'pytest>=7.0.0')
+        spec: Package specification string, can be:
+            - Full spec (e.g., 'python-dotenv==1.0.1')
+            - Version constraint only (e.g., '>=1.0.1')
+            - Package name only (e.g., 'python-dotenv')
+            - Version only (e.g., '1.0.1', '2.1.0a1', '1.0.0.dev1')
 
     Returns:
-        Tuple[str, str, str]: Package name, constraint, version
+        Tuple[Optional[str], Optional[str], Optional[str]]:
+            - Package name (None if only version/constraint provided)
+            - Version constraint (None if not provided)
+            - Version (None if not provided)
 
     Raises:
-        ValueError: If dependency string format is invalid
+        ValueError: If the input format is invalid or version doesn't follow PEP 440
     """
-    match = DEPENDENCY_PATTERN.match(dep_str)
-    if not match:
-        raise ValueError(f"Invalid dependency format: {dep_str}")
+    # Try to match full dependency pattern first
+    dep_match = DEPENDENCY_PATTERN.match(spec)
+    if dep_match:
+        name, constraint, version = dep_match.groups()
+        if constraint not in VALID_CONSTRAINTS:
+            raise ValueError(f"Invalid version constraint: {constraint}")
+        if not VERSION_PATTERN.match(version):
+            raise ValueError(f"Invalid version format: {version}")
+        return name, constraint, version
 
-    package_name, constraint, version = match.groups()
-    return package_name.strip(), constraint, version.strip()
+    # Try to match version constraint pattern
+    for constraint in VALID_CONSTRAINTS:
+        if spec.startswith(constraint):
+            version = spec[len(constraint) :]
+            if not VERSION_PATTERN.match(version):
+                raise ValueError(f"Invalid version format: {version}")
+            return None, constraint, version
+
+    # Check if it's just a version
+    if VERSION_PATTERN.match(spec):
+        return None, None, spec
+
+    # Check if it's just a package name
+    if re.match(r"^[a-zA-Z][a-zA-Z0-9-_.]*$", spec):
+        return spec, None, None
+
+    raise ValueError(f"Invalid requirement format: {spec}")
 
 
 def check_version_compatibility(

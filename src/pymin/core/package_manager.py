@@ -10,7 +10,7 @@ from rich.text import Text
 from rich.tree import Tree
 from rich.style import Style
 from .package_analyzer import PackageAnalyzer
-from .version_utils import normalize_package_name
+from .version_utils import normalize_package_name, parse_requirement_string
 from packaging import version
 import re
 import requests
@@ -168,9 +168,9 @@ class PackageManager:
         successfully_added = []
 
         # Parse package specifications
-        package_specs = [self._parse_package_spec(pkg) for pkg in packages]
+        package_specs = [parse_requirement_string(pkg) for pkg in packages]
 
-        for pkg_name, pkg_version in package_specs:
+        for pkg_name, pkg_constraint, pkg_version in package_specs:
             try:
                 # Install package
                 cmd = [str(self._pip_path), "install"]
@@ -560,13 +560,6 @@ class PackageManager:
         self._update_requirements(removed=list(packages_to_remove))
 
         return results
-
-    def _parse_package_spec(self, spec: str) -> Tuple[str, Optional[str]]:
-        """Parse package specification into name and version"""
-        if "==" in spec:
-            name, version = spec.split("==")
-            return name.strip(), version.strip()
-        return spec.strip(), None
 
     def _get_installed_packages(self) -> Dict[str, Dict[str, Any]]:
         """Get installed packages and their information
