@@ -458,20 +458,26 @@ password = {token}
         """Clean up temporarily installed packages"""
         if self.need_install:
             console.print("\n[blue]Cleaning up temporary packages...[/blue]")
-            for pkg in self.need_install:
-                with console.status(
-                    f"[blue]Removing [cyan]{pkg}[/cyan]...[/blue]",
-                    spinner="dots",
-                ) as status:
-                    process = subprocess.run(
-                        ["pip", "uninstall", "-y", pkg],
-                        capture_output=True,
-                        text=True,
+
+            # 使用 VenvManager 來深度移除套件
+            from ..core.venv_manager import VenvManager
+
+            manager = VenvManager()
+
+            # 移除臨時安裝的套件
+            results = manager.remove_packages(self.need_install)
+
+            # 只顯示主要套件的移除結果
+            for pkg_name in self.need_install:
+                info = results.get(pkg_name, {})
+                if info["status"] == "removed":
+                    print_success(f"Removed {pkg_name}")
+                elif info["status"] == "error":
+                    print_warning(
+                        f"Warning: Failed to remove {pkg_name}: {info.get('message', 'Unknown error')}"
                     )
-                    if process.returncode == 0:
-                        print_success(f"Removed {pkg}")
-                    else:
-                        print_warning(f"Warning: Failed to remove {pkg}")
+                elif info["status"] == "not_found":
+                    print_warning(f"Warning: Package {pkg_name} was not found")
 
     def release(self, test: bool = False) -> bool:
         """
