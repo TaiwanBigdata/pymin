@@ -168,39 +168,93 @@ def test_dependency_parsing(empty_pyproject):
     """Test dependency string parsing"""
     manager = PyProjectManager(empty_pyproject)
 
-    # Valid dependency strings
-    name, constraint, version = parse_requirement_string("requests>=2.31.0")
+    # Test standard dependencies
+    name, extras, constraint, version = parse_requirement_string(
+        "requests>=2.31.0"
+    )
     assert name == "requests"
+    assert extras is None
     assert constraint == ">="
     assert version == "2.31.0"
 
-    name, constraint, version = parse_requirement_string("fastapi==0.100.0")
+    name, extras, constraint, version = parse_requirement_string(
+        "fastapi==0.100.0"
+    )
     assert name == "fastapi"
+    assert extras is None
     assert constraint == "=="
     assert version == "0.100.0"
 
-    name, constraint, version = parse_requirement_string("packaging==24.2")
-    assert name == "packaging"
+    # Test dependencies with extras
+    name, extras, constraint, version = parse_requirement_string(
+        "uvicorn[standard]==0.27.0"
+    )
+    assert name == "uvicorn"
+    assert extras == {"standard"}
     assert constraint == "=="
-    assert version == "24.2"
+    assert version == "0.27.0"
 
-    name, constraint, version = parse_requirement_string("invalid-format")
-    assert name == "invalid-format"
+    name, extras, constraint, version = parse_requirement_string(
+        "fastapi[all]>=0.100.0"
+    )
+    assert name == "fastapi"
+    assert extras == {"all"}
+    assert constraint == ">="
+    assert version == "0.100.0"
+
+    # Test package with extras but no version
+    name, extras, constraint, version = parse_requirement_string(
+        "uvicorn[standard]"
+    )
+    assert name == "uvicorn"
+    assert extras == {"standard"}
     assert constraint is None
     assert version is None
 
-    name, constraint, version = parse_requirement_string("24.2")
+    # Test multiple extras
+    name, extras, constraint, version = parse_requirement_string(
+        "uvicorn[standard,asyncio]==0.27.0"
+    )
+    assert name == "uvicorn"
+    assert extras == {"standard", "asyncio"}
+    assert constraint == "=="
+    assert version == "0.27.0"
+
+    # Test standard package names
+    name, extras, constraint, version = parse_requirement_string(
+        "packaging==24.2"
+    )
+    assert name == "packaging"
+    assert extras is None
+    assert constraint == "=="
+    assert version == "24.2"
+
+    name, extras, constraint, version = parse_requirement_string(
+        "invalid-format"
+    )
+    assert name == "invalid-format"
+    assert extras is None
+    assert constraint is None
+    assert version is None
+
+    name, extras, constraint, version = parse_requirement_string("24.2")
     assert name is None
+    assert extras is None
     assert constraint is None
     assert version == "24.2"
 
-    # Invalid dependency strings
+    # Test invalid extras format
     invalid_inputs = [
         "",  # Empty string
         "package name with spaces",  # Spaces not allowed
         "requests>>2.31.0",  # Invalid constraint
         "requests==invalid.version",  # Invalid version format
         "@invalid",  # Invalid starting character
+        "uvicorn[]",  # Empty extras
+        "uvicorn[standard",  # Unclosed bracket
+        "uvicorn]standard[",  # Wrong bracket order
+        "uvicorn[standard][extra]",  # Multiple extras not supported
+        "uvicorn[!@#]",  # Invalid characters in extras
     ]
 
     for invalid_input in invalid_inputs:

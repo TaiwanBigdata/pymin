@@ -76,68 +76,32 @@ class PyProjectManager:
             self._write()
 
     def add_dependency(
-        self,
-        package_name: str,
-        version: str,
-        constraint: VERSION_CONSTRAINTS = ">=",
+        self, name: str, version: str, constraint: str = ">="
     ) -> None:
-        """
-        Add or update a dependency
+        """Add a dependency to pyproject.toml
 
         Args:
-            package_name: Name of the package
-            version: Version of the package
-            constraint: Version constraint (>=, ==, <=, !=, ~=, >, <)
-
-        Raises:
-            ValueError: If version format or constraint is invalid
+            name: Package name
+            version: Version string
+            constraint: Version constraint (default: ">=")
         """
-        if constraint not in self.valid_constraints:
-            raise ValueError(
-                f"Invalid constraint: {constraint}. "
-                f"Valid constraints are: {', '.join(self.valid_constraints)}"
-            )
-
-        if not self._validate_version(version):
-            raise ValueError(f"Invalid version format: {version}")
-
         self._ensure_dependencies_table()
         dep_list = self.data["project"]["dependencies"]
 
-        # 取得正規化名稱
-        normalized_name = normalize_package_name(package_name)
+        # Format dependency string
+        dep_str = f"{name}{constraint}{version}"
 
-        # 從已安裝的套件中找出原始名稱
-        pkg_analyzer = PackageAnalyzer()
-        installed_packages = pkg_analyzer.get_installed_packages()
-        original_name = package_name  # 預設使用傳入的名稱
+        # Remove existing dependency if present
+        for i, dep in enumerate(dep_list):
+            current_name, extras, constraint, version = (
+                parse_requirement_string(dep)
+            )
+            if current_name == name:
+                dep_list.pop(i)
+                break
 
-        if normalized_name in installed_packages:
-            original_name = installed_packages[normalized_name]["name"]
-
-        # 使用原始名稱建立相依性字串
-        new_dep_str = f"{original_name}{constraint}{version}"
-
-        # Create new array preserving format
-        new_dep_list = tomlkit.array()
-        new_dep_list.multiline(True)
-
-        # Get all dependencies including the new one
-        all_deps = set()
-        for dep in dep_list:
-            try:
-                current_name, _, _ = parse_requirement_string(dep)
-                if normalize_package_name(current_name) != normalized_name:
-                    all_deps.add(dep)
-            except ValueError:
-                all_deps.add(dep)
-        all_deps.add(new_dep_str)
-
-        # Sort and add all dependencies
-        for dep in sorted(all_deps):
-            new_dep_list.append(dep)
-
-        self.data["project"]["dependencies"] = new_dep_list
+        # Add new dependency
+        dep_list.append(dep_str)
         self._write()
 
     def remove_dependency(self, package_name: str) -> None:
@@ -157,7 +121,9 @@ class PyProjectManager:
 
             for dep in dep_list:
                 try:
-                    current_name, _, _ = parse_requirement_string(dep)
+                    current_name, extras, constraint, version = (
+                        parse_requirement_string(dep)
+                    )
                     if (
                         normalize_package_name(current_name)
                         != normalized_remove_name
@@ -172,42 +138,38 @@ class PyProjectManager:
     def bulk_add_dependencies(
         self, dependencies: Dict[str, Union[str, Tuple[str, str]]]
     ) -> None:
-        """
-        Add multiple dependencies at once
+        """Add multiple dependencies at once
 
         Args:
-            dependencies: Dictionary of package names and versions.
-                        Values can be either version strings (uses >=)
-                        or tuples of (version, constraint)
+            dependencies: Dict mapping package names to either:
+                - version string (uses default >=)
+                - tuple of (version, constraint)
         """
         with self.bulk_operation():
-            for package_name, version_info in dependencies.items():
+            for name, version_info in dependencies.items():
                 if isinstance(version_info, tuple):
                     version, constraint = version_info
-                    self.add_dependency(package_name, version, constraint)
                 else:
-                    self.add_dependency(package_name, version_info)
+                    version = version_info
+                    constraint = ">="
+                self.add_dependency(name, version, constraint)
 
     def get_dependencies(self) -> Dict[str, Tuple[str, str]]:
-        """
-        Get current dependencies
+        """Get dependencies from pyproject.toml
 
         Returns:
-            Dict[str, Tuple[str, str]]: Dictionary of package names and (constraint, version) tuples
+            Dict mapping package names to tuples of (constraint, version)
         """
-        if (
-            "project" not in self.data
-            or "dependencies" not in self.data["project"]
-        ):
+        if not self.data or "project" not in self.data:
             return {}
 
-        result = {}
-        for dep in self.data["project"]["dependencies"]:
-            try:
-                package_name, constraint, version = parse_requirement_string(
+        deps = {}
+        if "dependencies" in self.data["project"]:
+            for dep in self.data["project"]["dependencies"]:
+                name, extras, constraint, version = parse_requirement_string(
                     dep
                 )
-                result[package_name] = (constraint, version)
-            except ValueError:
-                continue
-        return result
+                if name and constraint and version:
+                    deps[name] = (constraint, version)
+
+        return deps

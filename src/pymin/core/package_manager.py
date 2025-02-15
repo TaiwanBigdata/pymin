@@ -170,7 +170,7 @@ class PackageManager:
         # Parse package specifications
         package_specs = [parse_requirement_string(pkg) for pkg in packages]
 
-        for pkg_name, pkg_constraint, pkg_version in package_specs:
+        for pkg_name, pkg_extras, pkg_constraint, pkg_version in package_specs:
             try:
                 # Install package
                 cmd = [str(self._pip_path), "install"]
@@ -179,10 +179,16 @@ class PackageManager:
                 if no_deps:
                     cmd.append("--no-deps")
 
-                # Construct package spec
-                pkg_spec = (
-                    f"{pkg_name}=={pkg_version}" if pkg_version else pkg_name
-                )
+                # Construct package spec with extras if present
+                if pkg_extras:
+                    extras_str = f"[{','.join(sorted(pkg_extras))}]"
+                    pkg_spec = f"{pkg_name}{extras_str}"
+                else:
+                    pkg_spec = pkg_name
+
+                if pkg_version:
+                    pkg_spec = f"{pkg_spec}=={pkg_version}"
+
                 cmd.append(pkg_spec)
 
                 process = subprocess.run(
