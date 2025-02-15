@@ -68,6 +68,7 @@ class StyleType(Enum):
     PACKAGE_NAME = Style(color="cyan")
     PACKAGE_VERSION = Style(color="blue")
     PACKAGE_DEPENDENCY = Style(dim=True)
+    PACKAGE_EXTRAS = Style(color="magenta")
 
     # Environment related styles
     VENV_ACTIVE = Style(color="green", bold=True)

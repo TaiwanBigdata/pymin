@@ -82,6 +82,7 @@ class DependencyInfo:
         self._version_spec = version_spec
         self.source = source
         self.versions: Dict[DependencySource, str] = {}
+        self.extras: Optional[Set[str]] = None
 
     def set_version(self, version: str, source: DependencySource):
         """Set version for specific source"""
@@ -185,6 +186,9 @@ class DependencyInfo:
 
     @property
     def version_spec(self) -> str:
+        if self.extras:
+            extras_str = f"[{','.join(sorted(self.extras))}]"
+            return f"{self.name}{extras_str}{self._version_spec}"
         return self._version_spec
 
     @version_spec.setter
@@ -262,22 +266,6 @@ class PackageAnalyzer:
         self._packages_cache = None
         self._requirements_cache = None
 
-    def _parse_version_spec(self, spec: str) -> Tuple[str, str]:
-        """
-        Parse version specification into constraint and version
-
-        Args:
-            spec: Version specification (e.g., ">=8.0.0")
-
-        Returns:
-            Tuple of (constraint, version)
-        """
-        for constraint in VALID_CONSTRAINTS:
-            if spec.startswith(constraint):
-                version = spec[len(constraint) :].strip()
-                return constraint, version
-        return "", spec
-
     def _parse_requirements(self) -> Dict[str, DependencyInfo]:
         """
         Parse requirements.txt and pyproject.toml files and return package information
@@ -297,10 +285,16 @@ class PackageAnalyzer:
                         line = line.strip()
                         if line and not line.startswith("#"):
                             try:
-                                req = Requirement(line)
-                                name = self._normalize_package_name(req.name)
+                                name, extras, constraint, version = (
+                                    parse_requirement_string(line)
+                                )
+                                if name is None:
+                                    continue
+
                                 spec = (
-                                    str(req.specifier) if req.specifier else ""
+                                    f"{constraint}{version}"
+                                    if constraint and version
+                                    else ""
                                 )
 
                                 if name not in sources:
@@ -308,13 +302,14 @@ class PackageAnalyzer:
                                 sources[name].add(DependencySource.REQUIREMENTS)
 
                                 if name not in self._requirements_cache:
-                                    self._requirements_cache[name] = (
-                                        DependencyInfo(
-                                            name=name,
-                                            version_spec=spec,
-                                            source=DependencySource.REQUIREMENTS,
-                                        )
+                                    dep_info = DependencyInfo(
+                                        name=name,
+                                        version_spec=spec,
+                                        source=DependencySource.REQUIREMENTS,
                                     )
+                                    if extras:
+                                        dep_info.extras = extras
+                                    self._requirements_cache[name] = dep_info
                                 self._requirements_cache[name].set_version(
                                     spec, DependencySource.REQUIREMENTS
                                 )
@@ -337,10 +332,16 @@ class PackageAnalyzer:
                     ):
                         for dep in pyproject_data["project"]["dependencies"]:
                             try:
-                                req = Requirement(dep)
-                                name = self._normalize_package_name(req.name)
+                                name, extras, constraint, version = (
+                                    parse_requirement_string(dep)
+                                )
+                                if name is None:
+                                    continue
+
                                 spec = (
-                                    str(req.specifier) if req.specifier else ""
+                                    f"{constraint}{version}"
+                                    if constraint and version
+                                    else ""
                                 )
 
                                 if name not in sources:
@@ -348,13 +349,14 @@ class PackageAnalyzer:
                                 sources[name].add(DependencySource.PYPROJECT)
 
                                 if name not in self._requirements_cache:
-                                    self._requirements_cache[name] = (
-                                        DependencyInfo(
-                                            name=name,
-                                            version_spec=spec,
-                                            source=DependencySource.PYPROJECT,
-                                        )
+                                    dep_info = DependencyInfo(
+                                        name=name,
+                                        version_spec=spec,
+                                        source=DependencySource.PYPROJECT,
                                     )
+                                    if extras:
+                                        dep_info.extras = extras
+                                    self._requirements_cache[name] = dep_info
                                 self._requirements_cache[name].set_version(
                                     spec, DependencySource.PYPROJECT
                                 )
@@ -505,9 +507,7 @@ class PackageAnalyzer:
         requirements: Dict[str, DependencyInfo],
         all_dependencies: Set[str],
     ) -> Dict:
-        """
-        Get standardized package information
-        """
+        """Get standardized package information"""
         pkg_info = installed_packages.get(pkg_name, {})
         installed_version = pkg_info.get("installed_version")
         dep_info = requirements.get(pkg_name)
@@ -515,6 +515,11 @@ class PackageAnalyzer:
         # Format required version with source indicator
         required_version = dep_info.format_version() if dep_info else None
         version_for_check = dep_info.version_spec if dep_info else ""
+
+        # Get extras from DependencyInfo
+        extras = None
+        if dep_info and hasattr(dep_info, "extras"):
+            extras = dep_info.extras
 
         is_installed = pkg_name in installed_packages
 
@@ -539,8 +544,11 @@ class PackageAnalyzer:
             "name": pkg_info.get("name", pkg_name),
             "installed_version": installed_version,
             "required_version": required_version,
+            "extras": extras,  # Add extras information
             "dependencies": sorted(pkg_info.get("dependencies", [])),
             "status": status.value,
+            "redundant": pkg_name in all_dependencies
+            and pkg_name in requirements,
         }
 
     def _get_package_dependencies(
@@ -743,3 +751,109 @@ class PackageAnalyzer:
                 result[pkg_name] = dep_info
 
         return dict(sorted(result.items()))
+
+    def get_package_inconsistencies(
+        self,
+        installed_packages: Dict,
+        requirements: Dict[str, DependencyInfo],
+        use_pyproject: bool,
+    ) -> Dict[PackageStatus, List[str]]:
+        """
+        Get all package inconsistencies grouped by their status.
+
+        Args:
+            installed_packages: Dictionary of installed packages
+            requirements: Dictionary of required packages
+            use_pyproject: Whether using pyproject.toml as source
+
+        Returns:
+            Dict mapping PackageStatus to list of package names
+        """
+        inconsistencies = {
+            PackageStatus.REDUNDANT: [],
+            PackageStatus.NOT_INSTALLED: [],
+            PackageStatus.NOT_IN_REQUIREMENTS: [],
+            PackageStatus.VERSION_MISMATCH: [],
+        }
+
+        # 收集所有依賴關係（包含子依賴和孫依賴）
+        all_dependencies = set()
+        for pkg_info in installed_packages.values():
+            deps = pkg_info.get("dependencies", [])
+            all_dependencies.update(deps)
+            # 遞迴收集子依賴的依賴
+            for dep in deps:
+                if dep in installed_packages:
+                    all_dependencies.update(
+                        installed_packages[dep].get("dependencies", [])
+                    )
+
+        # 先檢查冗餘套件
+        for pkg_name, dep_info in requirements.items():
+            if pkg_name in all_dependencies:
+                # 只要套件是其他套件的依賴，就標記為冗餘
+                inconsistencies[PackageStatus.REDUNDANT].append(pkg_name)
+
+        # 檢查 requirements 中的套件
+        for pkg_name, dep_info in requirements.items():
+            # 如果是冗餘套件，跳過其他檢查
+            if pkg_name in inconsistencies[PackageStatus.REDUNDANT]:
+                continue
+
+            # 檢查是否已安裝
+            if pkg_name not in installed_packages:
+                inconsistencies[PackageStatus.NOT_INSTALLED].append(pkg_name)
+                continue
+
+            # 檢查版本是否匹配
+            installed_version = installed_packages[pkg_name][
+                "installed_version"
+            ]
+
+            # 根據來源選擇正確的版本規範
+            if use_pyproject:
+                # 如果使用 pyproject.toml，優先使用其版本規範
+                version_for_check = dep_info.versions.get(
+                    DependencySource.PYPROJECT, ""
+                )
+                # 如果套件不在 pyproject.toml 中，才使用 requirements.txt 的版本
+                if not version_for_check:
+                    version_for_check = dep_info.versions.get(
+                        DependencySource.REQUIREMENTS, ""
+                    )
+            else:
+                # 如果使用 requirements.txt，使用其版本規範
+                version_for_check = dep_info.versions.get(
+                    DependencySource.REQUIREMENTS, ""
+                )
+
+            if version_for_check and not self._check_version_compatibility(
+                installed_version, version_for_check
+            ):
+                # 將版本規範資訊一併儲存，以便後續顯示
+                inconsistencies[PackageStatus.VERSION_MISMATCH].append(
+                    (pkg_name, version_for_check)
+                )
+
+        # 檢查已安裝但不在 requirements 中的套件
+        for pkg_name in installed_packages:
+            if pkg_name not in requirements and not any(
+                pkg_name in deps
+                for deps in [
+                    pkg["dependencies"] for pkg in installed_packages.values()
+                ]
+            ):
+                inconsistencies[PackageStatus.NOT_IN_REQUIREMENTS].append(
+                    pkg_name
+                )
+
+        # 對每個列表進行排序以保持穩定的輸出順序
+        for status in inconsistencies:
+            if status == PackageStatus.VERSION_MISMATCH:
+                inconsistencies[status].sort(
+                    key=lambda x: x[0]
+                )  # 根據套件名稱排序
+            else:
+                inconsistencies[status].sort()
+
+        return inconsistencies

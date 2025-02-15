@@ -8,6 +8,8 @@ from rich.status import Status
 from rich.box import DOUBLE
 from typing import Dict, List, Optional, Union, Literal
 from contextlib import contextmanager
+
+from pymin.core.package_analyzer import PackageStatus
 from ..ui.style import (
     StyleType,
     SymbolType,
@@ -124,13 +126,24 @@ def create_package_table(
 
         # Handle package name with consistent styling
         name = package_data.get("name", "")
-        if package_data.get("redundant"):
-            name_text = Text()
+        extras = package_data.get("extras")  # Get extras information
+
+        # Create package name text
+        name_text = Text()
+
+        # Add package name with extras if available
+        if extras:
             name_text.append(name, style=StyleType.PACKAGE_NAME)
+            extras_str = f"[{','.join(sorted(extras))}]"
+            name_text.append(extras_str, style=StyleType.PACKAGE_EXTRAS)
+        else:
+            name_text.append(name, style=StyleType.PACKAGE_NAME)
+
+        # Add redundant marker if needed
+        if package_data.get("status") == PackageStatus.REDUNDANT:
             name_text.append(" ", style=StyleType.WARNING)
             name_text.append("(redundant)", style=StyleType.WARNING)
-        else:
-            name_text = Text(name, style=StyleType.PACKAGE_NAME)
+
         styled_row.append(name_text)
 
         # Handle required version
@@ -214,6 +227,7 @@ def create_dependency_tree(packages: Dict[str, Dict]) -> Table:
         installed_version = data.get("installed_version", "")
         required_version = data.get("required_version", "")
         display_name = data.get("name", name)  # Use name from data if available
+        extras = data.get("extras")  # 獲取 extras 資訊
 
         # Format version displays
         if required_version:
@@ -245,15 +259,22 @@ def create_dependency_tree(packages: Dict[str, Dict]) -> Table:
         status = data.get("status", "")
         status_symbol = get_status_symbol(status)
 
-        # Create display name with styled redundant suffix
+        # Create display name with styled extras and redundant suffix
+        display_text = Text()
+        display_text.append(display_name)
+
+        # Add extras if available
+        if extras:
+            extras_str = f"[{','.join(sorted(extras))}]"
+            display_text.append(extras_str, style=StyleType.PACKAGE_EXTRAS)
+
+        # Add redundant suffix if needed
         if level == 0 and status == "redundant":
-            display_text = Text()
-            display_text.append(display_name)
             display_text.append(" ", style="yellow")
             display_text.append("(redundant)", style="yellow")
-            display_name = Text.assemble(prefix, display_text)
-        else:
-            display_name = f"{prefix}{display_name}"
+
+        # Add prefix to the display name
+        display_name = Text.assemble(prefix, display_text)
 
         return [
             display_name,

@@ -8,6 +8,7 @@ from ...core.package_analyzer import (
     PackageAnalyzer,
     DependencySource,
     DependencyInfo,
+    PackageStatus,
 )
 from ...ui.console import (
     print_error,
@@ -54,145 +55,66 @@ def fix(yes: bool = False):
         # Get package information
         with progress_status("Analyzing packages..."):
             installed_packages = pkg_analyzer.get_installed_packages()
-            top_level_packages = pkg_analyzer.get_top_level_packages()
             requirements = pkg_analyzer._parse_requirements()
 
         if not installed_packages and not requirements:
             print_warning("No packages found to analyze")
             return
 
-        # Find issues to fix
-        issues_found = False
-        packages_to_update: List[Tuple[str, str, str]] = (
-            []
-        )  # name, current, required
-        packages_to_install: List[str] = []  # name
-        redundant_packages: List[str] = []  # name
-        not_in_requirements: List[Tuple[str, str, str]] = (
-            []
-        )  # name, version, missing_from
+        # Find issues to fix using the new abstraction
+        inconsistencies = pkg_analyzer.get_package_inconsistencies(
+            installed_packages, requirements, use_pyproject
+        )
 
-        # Check packages installed but not in requirements (only top-level)
-        for pkg_name, pkg_info in top_level_packages.items():
-            if pkg_info["status"] == "not_in_requirements":
-                # 檢查套件是否在 requirements.txt 和 pyproject.toml 中
-                in_requirements = pkg_name in requirements
-                has_pyproject = Path("pyproject.toml").exists()
-                in_pyproject = has_pyproject and any(
-                    dep.name == pkg_name
-                    for dep in pkg_analyzer._parse_pyproject_dependencies()
-                )
-
-                # 根據使用的文件和存在狀況決定顯示訊息
-                if use_pyproject:
-                    if not in_pyproject:
-                        missing_from = (
-                            "both files"
-                            if not in_requirements
-                            else "pyproject.toml"
-                        )
-                        not_in_requirements.append(
-                            (
-                                pkg_name,
-                                pkg_info["installed_version"],
-                                missing_from,
-                            )
-                        )
-                        issues_found = True
-                else:
-                    if not in_requirements:
-                        missing_from = (
-                            "both files"
-                            if has_pyproject and not in_pyproject
-                            else "requirements.txt"
-                        )
-                        not_in_requirements.append(
-                            (
-                                pkg_name,
-                                pkg_info["installed_version"],
-                                missing_from,
-                            )
-                        )
-                        issues_found = True
-
-        # Check version mismatches and missing packages
-        for pkg_name, req_version in requirements.items():
-            if pkg_name not in installed_packages:
-                packages_to_install.append(pkg_name)
-                issues_found = True
-            else:
-                installed_version = installed_packages[pkg_name][
-                    "installed_version"
-                ]
-                # 處理 DependencyInfo 對象的版本比較
-                if hasattr(req_version, "version_spec"):
-                    required_clean = req_version.version_spec
-                elif isinstance(req_version, Text):
-                    required_clean = str(req_version)
-                else:
-                    required_clean = req_version.lstrip("=")
-
-                # 檢查版本是否滿足要求
-                def is_version_satisfied(
-                    current: str, requirement: str
-                ) -> bool:
-                    # 如果要求是 >=x.x.x 格式，檢查當前版本是否大於等於要求版本
-                    if requirement.startswith(">="):
-                        spec = SpecifierSet(requirement)
-                        return Version(current) in spec
-                    # 如果要求是 ==x.x.x 格式，直接比較版本號
-                    elif requirement.startswith("==") or not any(
-                        requirement.startswith(op)
-                        for op in [">=", "<=", "!=", "~=", ">", "<"]
-                    ):
-                        req_version = requirement.lstrip("=").strip()
-                        return current.strip() == req_version
-                    return False
-
-                if not is_version_satisfied(installed_version, required_clean):
-                    packages_to_update.append(
-                        (pkg_name, installed_version, required_clean)
-                    )
-                    issues_found = True
-
-        # Check redundant packages
-        all_dependencies = set()
-        for pkg_info in installed_packages.values():
-            deps = pkg_info.get("dependencies", [])
-            all_dependencies.update(deps)
-
-        # 檢查 requirements 中的套件是否為其他套件的依賴
-        for pkg_name, dep_info in requirements.items():
-            if pkg_name in all_dependencies:
-                # 檢查套件來源
-                if isinstance(dep_info, DependencyInfo):
-                    if use_pyproject:
-                        # 使用 pyproject.toml 時，只檢查來自 pyproject.toml 的套件
-                        if dep_info.source in [
-                            DependencySource.PYPROJECT,
-                            DependencySource.BOTH,
-                        ]:
-                            redundant_packages.append(pkg_name)
-                            issues_found = True
-                    else:
-                        # 使用 requirements.txt 時，只檢查來自 requirements.txt 的套件
-                        if dep_info.source in [
-                            DependencySource.REQUIREMENTS,
-                            DependencySource.BOTH,
-                        ]:
-                            redundant_packages.append(pkg_name)
-                            issues_found = True
-                else:
-                    # 如果 dep_info 不是 DependencyInfo 對象，使用舊的邏輯
-                    redundant_packages.append(pkg_name)
-                    issues_found = True
-
-        # 保存 pyproject.toml 的路徑
-        pyproject_path = pkg_analyzer.project_path / "pyproject.toml"
-
+        # Check if any issues were found
+        issues_found = any(pkgs for pkgs in inconsistencies.values())
         if not issues_found:
             print_success("No package inconsistencies found!")
             return
+
+        # Convert inconsistencies to the format expected by the fix logic
+        packages_to_update = []
+        packages_to_install = []
+        redundant_packages = []
+        not_in_requirements = []
+
+        # Process version mismatches
+        for pkg_name, version_spec in inconsistencies[
+            PackageStatus.VERSION_MISMATCH
+        ]:
+            # 如果套件是冗餘的，跳過版本更新
+            if pkg_name in inconsistencies[PackageStatus.REDUNDANT]:
+                continue
+
+            installed_version = installed_packages[pkg_name][
+                "installed_version"
+            ]
+            packages_to_update.append(
+                (pkg_name, installed_version, version_spec)
+            )
+
+        # Process missing packages
+        # 同樣跳過冗餘套件
+        packages_to_install.extend(
+            [
+                pkg_name
+                for pkg_name in inconsistencies[PackageStatus.NOT_INSTALLED]
+                if pkg_name not in inconsistencies[PackageStatus.REDUNDANT]
+            ]
+        )
+
+        # Process redundant packages
+        redundant_packages.extend(inconsistencies[PackageStatus.REDUNDANT])
+
+        # Process not in requirements
+        for pkg_name in inconsistencies[PackageStatus.NOT_IN_REQUIREMENTS]:
+            version = installed_packages[pkg_name]["installed_version"]
+            # 根據使用的文件和存在狀況決定顯示訊息
+            if use_pyproject:
+                missing_from = "pyproject.toml"
+            else:
+                missing_from = "requirements.txt"
+            not_in_requirements.append((pkg_name, version, missing_from))
 
         # Display issues
         console.print("\n[cyan]Package Issues Found:[/cyan]")
@@ -337,24 +259,46 @@ def fix(yes: bool = False):
                 if use_pyproject:
                     from ...core.pyproject_manager import PyProjectManager
 
-                    proj_manager = PyProjectManager(pyproject_path)
+                    proj_manager = PyProjectManager(
+                        pkg_analyzer.project_path / "pyproject.toml"
+                    )
 
                 for name in redundant_packages:
                     try:
-                        if use_pyproject and proj_manager:
-                            proj_manager.remove_dependency(name)
-                        else:
-                            manager.package_manager._update_requirements(
-                                removed=[name]
-                            )
-                        fixed_count += 1
-                        print_success(
-                            f"Removed [cyan]{name}[/cyan] from {'pyproject.toml' if use_pyproject else 'requirements.txt'}"
+                        # 獲取完整的套件資訊（包含 extras）
+                        pkg_info = requirements.get(name)
+                        pkg_name_with_extras = (
+                            pkg_info.version_spec.split("==")[0].split(">=")[0]
+                            if pkg_info and pkg_info.extras
+                            else name
                         )
+
+                        # 同時從兩個文件中移除冗餘套件
+                        if use_pyproject and proj_manager:
+                            # 先檢查套件是否在 pyproject.toml 中
+                            deps = proj_manager.get_dependencies()
+                            if name in deps:
+                                proj_manager.remove_dependency(name)
+
+                        # 檢查並從 requirements.txt 中移除
+                        if Path("requirements.txt").exists():
+                            manager.package_manager._update_requirements(
+                                removed=[pkg_name_with_extras]
+                            )
+
+                        fixed_count += 1
+                        if use_pyproject and proj_manager and name in deps:
+                            print_success(
+                                f"Removed [cyan]{pkg_name_with_extras}[/cyan] from both pyproject.toml and requirements.txt"
+                            )
+                        else:
+                            print_success(
+                                f"Removed [cyan]{pkg_name_with_extras}[/cyan] from requirements.txt"
+                            )
                     except Exception as e:
                         error_count += 1
                         print_error(
-                            f"Failed to remove [cyan]{name}[/cyan] from {'pyproject.toml' if use_pyproject else 'requirements.txt'}: {str(e)}"
+                            f"Failed to remove [cyan]{name}[/cyan]: {str(e)}"
                         )
 
         # Handle not in requirements packages
