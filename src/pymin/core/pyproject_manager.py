@@ -111,36 +111,29 @@ class PyProjectManager:
 
     def remove_dependency(self, package_name: str) -> None:
         """
-        Remove a dependency
+        Remove a dependency and all its extras
 
         Args:
-            package_name: Name of the package to remove (can include extras)
+            package_name: Name of the package to remove (with or without extras)
         """
         if "project" in self.data and "dependencies" in self.data["project"]:
             dep_list = self.data["project"]["dependencies"]
             new_dep_list = tomlkit.array()
             new_dep_list.multiline(True)
 
-            # 解析要移除的套件名稱和 extras
-            remove_name, remove_extras, _, _ = parse_requirement_string(
-                package_name
-            )
+            # 解析要移除的套件名稱（忽略 extras，因為要移除所有版本）
+            remove_name, _, _, _ = parse_requirement_string(package_name)
             normalized_remove_name = normalize_package_name(remove_name)
 
             for dep in dep_list:
                 try:
-                    current_name, current_extras, _, _ = (
-                        parse_requirement_string(dep)
-                    )
+                    current_name, _, _, _ = parse_requirement_string(dep)
                     normalized_current_name = normalize_package_name(
                         current_name
                     )
 
                     # 如果基礎套件名稱不同，保留該套件
                     if normalized_current_name != normalized_remove_name:
-                        new_dep_list.append(dep)
-                    # 如果基礎套件名稱相同，但 extras 不同且要移除的沒有 extras，保留該套件
-                    elif current_extras and not remove_extras:
                         new_dep_list.append(dep)
                 except ValueError:
                     new_dep_list.append(dep)
