@@ -55,11 +55,10 @@ def find_next_test_version(project_name: str, base_version: str) -> str:
         return f"{base_version}.dev0"
 
     if response.status_code != 200:
-        # Can't get version info, use timestamp
-        from datetime import datetime
-
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        return f"{base_version}.dev{timestamp}"
+        # Can't get version info, use dev0 as fallback
+        print_warning("Unable to fetch version info from Test PyPI")
+        print_warning("Using dev0 as fallback")
+        return f"{base_version}.dev0"
 
     # Get all versions
     versions = response.json()["releases"].keys()
