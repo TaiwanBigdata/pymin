@@ -324,80 +324,69 @@ class PackageManager:
 
     def get_packages_to_remove(
         self, package_names: List[str]
-    ) -> Dict[str, Dict]:
+    ) -> Dict[str, List[Dict[str, str]]]:
         """
-        取得可以安全移除的套件集合。
-        一個套件可以被移除，如果它只被目標套件或其子孫套件所依賴。
+        取得多個頂層套件的獨有依賴（包含自身）的清單
 
         Args:
             package_names: 要移除的套件列表
 
         Returns:
-            Dict[str, Dict]: 可以安全移除的套件資訊字典，包含版本等資訊
+            Dict[str, List[Dict[str, str]]]: 格式為
+            {頂層套件名稱: [{name: 套件名稱, installed_version: 版本}, ...]}
         """
+        # 取得完整依賴樹
         dependency_tree = self.package_analyzer.get_dependency_tree()
-        removable_info = {}
 
-        for package_name in package_names:
-            if package_name not in dependency_tree:
-                print(f"找不到頂層套件 {package_name}")
+        # 內嵌函式：遞迴收集該套件及其所有依賴
+        def gather_deps(
+            pkg_obj: Dict, visited: Optional[Set[str]] = None
+        ) -> Dict[str, Dict]:
+            if visited is None:
+                visited = set()
+            pkg_name = pkg_obj.get("name")
+            if not pkg_name or pkg_name in visited:
+                return {}
+            visited.add(pkg_name)
+            result = {pkg_name: pkg_obj}
+            for dep in pkg_obj.get("dependencies", {}).values():
+                result.update(gather_deps(dep, visited))
+            return result
+
+        removal_set = set(package_names)
+        non_removal_top_levels = set(dependency_tree.keys()) - removal_set
+
+        # 針對每個欲移除套件收集候選依賴集合
+        removal_candidates = {}
+        for pkg_name in package_names:
+            if pkg_name not in dependency_tree:
+                print(f"找不到頂層套件 {pkg_name}")
                 continue
+            removal_candidates[pkg_name] = gather_deps(
+                dependency_tree[pkg_name]
+            )
 
-            # 1. 從輸入套件遞迴收集所有候選移除套件
-            candidate_info = {}
-            visited = set()
+        # 收集非欲移除頂層套件及其所有依賴（共用依賴）
+        non_removal_deps = {}
+        for pkg_name in non_removal_top_levels:
+            non_removal_deps.update(gather_deps(dependency_tree[pkg_name]))
 
-            def gather(pkg_info: Dict) -> None:
-                """遞迴收集套件及其所有依賴"""
-                if not pkg_info:
-                    return
+        # 排除共用依賴，取得獨有依賴
+        result = {}
+        for top_pkg, candidate in removal_candidates.items():
+            removable = {}
+            for pkg_name, pkg_info in candidate.items():
+                if pkg_name not in non_removal_deps:
+                    removable[pkg_name] = pkg_info
+            result[top_pkg] = [
+                {
+                    "name": info["name"],
+                    "installed_version": info["installed_version"],
+                }
+                for info in removable.values()
+            ]
 
-                pkg_name = pkg_info.get("name")
-                if not pkg_name or pkg_name in visited:
-                    return
-
-                visited.add(pkg_name)
-                candidate_info[pkg_name] = pkg_info
-
-                # 遍歷所有依賴
-                for dep in pkg_info.get("dependencies", {}).values():
-                    gather(dep)
-
-            # 收集當前套件的所有依賴
-            gather(dependency_tree[package_name])
-
-            # 2. 收集其他頂層套件及其依賴
-            shared_set = set()
-            for top_pkg_name, top_pkg_info in dependency_tree.items():
-                if top_pkg_name == package_name:
-                    continue
-
-                visited_other = set()
-
-                def gather_other(pkg_info: Dict) -> None:
-                    """遞迴收集其他套件的所有依賴"""
-                    if not pkg_info:
-                        return
-
-                    pkg_name = pkg_info.get("name")
-                    if not pkg_name or pkg_name in visited_other:
-                        return
-
-                    visited_other.add(pkg_name)
-                    shared_set.add(pkg_name)
-
-                    # 遍歷所有依賴
-                    for dep in pkg_info.get("dependencies", {}).values():
-                        gather_other(dep)
-
-                gather_other(top_pkg_info)
-
-            # 3. 從候選移除套件中排除被其他頂層套件及其子孫依賴的套件
-            for pkg_name, pkg_info in candidate_info.items():
-                if pkg_name not in shared_set:
-                    removable_info[pkg_name] = pkg_info
-
-        return removable_info
+        return result
 
     def remove_packages(
         self,
@@ -417,7 +406,15 @@ class PackageManager:
 
         # 取得所有可以安全移除的套件
         removable_packages = self.get_packages_to_remove(packages)
-        packages_to_remove = set(removable_packages.keys())
+        all_to_remove = set()  # 收集所有要移除的套件名稱
+        pkg_versions = {}  # 收集所有套件的版本資訊
+
+        # 收集所有要移除的套件及其版本資訊
+        for pkg_deps in removable_packages.values():
+            for dep in pkg_deps:
+                pkg_name = dep["name"]
+                all_to_remove.add(pkg_name)
+                pkg_versions[pkg_name] = dep["installed_version"]
 
         # 先檢查要移除的頂層套件是否存在
         for pkg_name in packages:
@@ -427,19 +424,16 @@ class PackageManager:
                     "status": "not_found",
                     "message": f"Package {pkg_name} is not installed",
                 }
-                packages_to_remove.discard(
-                    pkg_name
-                )  # 從移除列表中移除不存在的套件
+                all_to_remove.discard(pkg_name)  # 從移除列表中移除不存在的套件
                 continue
 
-            # 收集所有要移除的套件的版本資訊
+            # 收集這個套件特有的依賴
             removable_deps = {}
-            for dep_name in packages_to_remove:
+            pkg_deps = removable_packages.get(pkg_name, [])
+            for dep in pkg_deps:
+                dep_name = dep["name"]
                 if dep_name != pkg_name:  # 排除自己
-                    dep_info = removable_packages.get(dep_name, {})
-                    version = dep_info.get("installed_version")
-                    if version:
-                        removable_deps[dep_name] = version
+                    removable_deps[dep_name] = dep["installed_version"]
 
             try:
                 # 執行 pip uninstall
@@ -452,7 +446,7 @@ class PackageManager:
                 if process.returncode == 0:
                     results[pkg_name] = {
                         "status": "removed",
-                        "version": pkg_info.get("installed_version"),
+                        "version": pkg_versions.get(pkg_name),
                         "removable_deps": removable_deps,
                     }
                 else:
@@ -468,7 +462,7 @@ class PackageManager:
                 }
 
         # 移除剩餘的依賴套件
-        remaining_deps = packages_to_remove - set(packages)
+        remaining_deps = all_to_remove - set(packages)
         for dep_name in sorted(remaining_deps):
             if dep_name not in results:  # 避免重複移除
                 try:
@@ -479,10 +473,9 @@ class PackageManager:
                     )
 
                     if process.returncode == 0:
-                        dep_info = removable_packages.get(dep_name, {})
                         results[dep_name] = {
                             "status": "removed",
-                            "version": dep_info.get("installed_version"),
+                            "version": pkg_versions.get(dep_name),
                             "is_dependency": True,
                         }
                     else:
@@ -498,7 +491,7 @@ class PackageManager:
                     }
 
         # 更新依賴檔案
-        self._update_dependency_files(removed=list(packages_to_remove))
+        self._update_dependency_files(removed=list(all_to_remove))
 
         return results
 

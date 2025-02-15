@@ -52,33 +52,15 @@ def remove(packages: List[str]):
                     f"[bold][green]{SymbolType.SUCCESS}[/green] Removed [cyan]{pkg}=={info['version']}[/cyan][/bold]"
                 )
 
-                # 收集所有被移除的依賴（包括直接依賴和間接依賴）
-                all_deps = []
-
-                # 加入直接依賴
+                # 顯示這個套件特有的依賴
                 removable_deps = info.get("removable_deps", {})
                 if removable_deps:
-                    all_deps.extend(
+                    deps_str = ", ".join(
                         f"[cyan]{dep}=={version}[/cyan]"
                         for dep, version in sorted(removable_deps.items())
                     )
-
-                # 加入其他被移除的依賴
-                for dep_name, dep_info in results.items():
-                    if (
-                        dep_name not in packages
-                        and dep_name not in removable_deps
-                        and dep_info["status"] == "removed"
-                        and dep_info.get("is_dependency")
-                    ):
-                        all_deps.append(
-                            f"[cyan]{dep_name}=={dep_info['version']}[/cyan]"
-                        )
-
-                # 顯示所有被移除的依賴
-                if all_deps:
                     console.print(
-                        f"[dim]Removed dependencies:  {', '.join(sorted(all_deps))}[/dim]"
+                        f"[dim]Removed dependencies:  {deps_str}[/dim]"
                     )
 
             elif info["status"] == "not_found":
