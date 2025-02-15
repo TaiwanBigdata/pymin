@@ -81,24 +81,29 @@ class PyProjectManager:
         """Add a dependency to pyproject.toml
 
         Args:
-            name: Package name
+            name: Package name (can include extras)
             version: Version string
             constraint: Version constraint (default: ">=")
         """
         self._ensure_dependencies_table()
         dep_list = self.data["project"]["dependencies"]
 
+        # Parse the new dependency name to get base name and extras
+        new_name, new_extras, _, _ = parse_requirement_string(name)
+
         # Format dependency string
         dep_str = f"{name}{constraint}{version}"
 
-        # Remove existing dependency if present
+        # Remove existing dependency if present (considering extras)
         for i, dep in enumerate(dep_list):
-            current_name, extras, constraint, version = (
-                parse_requirement_string(dep)
-            )
-            if current_name == name:
-                dep_list.pop(i)
-                break
+            current_name, current_extras, _, _ = parse_requirement_string(dep)
+            # Compare base names and extras
+            if current_name == new_name:
+                # If new package has extras, it should replace the one without extras
+                # If current package has extras and new one doesn't, keep the one with extras
+                if new_extras or not current_extras:
+                    dep_list.pop(i)
+                    break
 
         # Add new dependency
         dep_list.append(dep_str)
@@ -109,25 +114,33 @@ class PyProjectManager:
         Remove a dependency
 
         Args:
-            package_name: Name of the package to remove
+            package_name: Name of the package to remove (can include extras)
         """
         if "project" in self.data and "dependencies" in self.data["project"]:
             dep_list = self.data["project"]["dependencies"]
             new_dep_list = tomlkit.array()
             new_dep_list.multiline(True)
 
-            # 正規化要移除的套件名稱
-            normalized_remove_name = normalize_package_name(package_name)
+            # 解析要移除的套件名稱和 extras
+            remove_name, remove_extras, _, _ = parse_requirement_string(
+                package_name
+            )
+            normalized_remove_name = normalize_package_name(remove_name)
 
             for dep in dep_list:
                 try:
-                    current_name, extras, constraint, version = (
+                    current_name, current_extras, _, _ = (
                         parse_requirement_string(dep)
                     )
-                    if (
-                        normalize_package_name(current_name)
-                        != normalized_remove_name
-                    ):
+                    normalized_current_name = normalize_package_name(
+                        current_name
+                    )
+
+                    # 如果基礎套件名稱不同，保留該套件
+                    if normalized_current_name != normalized_remove_name:
+                        new_dep_list.append(dep)
+                    # 如果基礎套件名稱相同，但 extras 不同且要移除的沒有 extras，保留該套件
+                    elif current_extras and not remove_extras:
                         new_dep_list.append(dep)
                 except ValueError:
                     new_dep_list.append(dep)

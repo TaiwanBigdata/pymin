@@ -121,16 +121,25 @@ class PackageManager:
             if added:
                 for pkg_spec in added:
                     try:
-                        # Parse package spec (e.g., "package==1.0.0" or "package")
-                        if "==" in pkg_spec:
-                            pkg_name, version = pkg_spec.split("==")
-                        else:
-                            pkg_name = pkg_spec
-                            # Get installed version
-                            version = self._get_installed_version(pkg_name)
+                        # Parse full package spec including extras
+                        pkg_info = parse_requirement_string(pkg_spec)
+                        pkg_name, pkg_extras, _, pkg_version = pkg_info
 
-                        if version:
-                            proj_manager.add_dependency(pkg_name, version, ">=")
+                        if not pkg_version:
+                            # Get installed version if not specified
+                            pkg_version = self._get_installed_version(pkg_name)
+
+                        if pkg_version:
+                            # Construct full package name with extras
+                            if pkg_extras:
+                                extras_str = f"[{','.join(sorted(pkg_extras))}]"
+                                full_pkg_name = f"{pkg_name}{extras_str}"
+                            else:
+                                full_pkg_name = pkg_name
+
+                            proj_manager.add_dependency(
+                                full_pkg_name, pkg_version, ">="
+                            )
                     except Exception as e:
                         print_warning(
                             f"Warning: Failed to add {pkg_name} to pyproject.toml: {str(e)}"
@@ -216,10 +225,20 @@ class PackageManager:
 
                     if matching_pkg:
                         version = pkg_info["installed_version"]
-                        successfully_added.append(f"{matching_pkg}=={version}")
+                        # Construct full package spec with extras
+                        if pkg_extras:
+                            extras_str = f"[{','.join(sorted(pkg_extras))}]"
+                            full_pkg_spec = (
+                                f"{matching_pkg}{extras_str}=={version}"
+                            )
+                        else:
+                            full_pkg_spec = f"{matching_pkg}=={version}"
+
+                        successfully_added.append(full_pkg_spec)
                         results[matching_pkg] = {
                             "status": "installed",
                             "version": version,
+                            "extras": pkg_extras,  # Store extras information
                             "dependencies": sorted(pkg_info["dependencies"]),
                             "new_dependencies": sorted(
                                 pkg_info["dependencies"]
@@ -565,6 +584,20 @@ class PackageManager:
         # 更新 requirements.txt
         self._update_requirements(removed=list(packages_to_remove))
 
+        # 更新 pyproject.toml
+        pyproject_path = Path("pyproject.toml")
+        if pyproject_path.exists():
+            from .pyproject_manager import PyProjectManager
+
+            proj_manager = PyProjectManager(pyproject_path)
+            for pkg_name in packages_to_remove:
+                try:
+                    proj_manager.remove_dependency(pkg_name)
+                except Exception as e:
+                    print(
+                        f"Warning: Failed to remove {pkg_name} from pyproject.toml: {str(e)}"
+                    )
+
         return results
 
     def _get_installed_packages(self) -> Dict[str, Dict[str, Any]]:
@@ -663,67 +696,85 @@ class PackageManager:
         removed: Optional[List[str]] = None,
         dev: bool = False,
     ) -> None:
-        """Update requirements.txt file"""
-        try:
-            # Read existing requirements
-            requirements = []
-            if self.requirements_path.exists():
-                with open(self.requirements_path) as f:
-                    requirements = [line.strip() for line in f if line.strip()]
+        """Update requirements.txt with added or removed packages
 
-            # Remove packages
-            if removed:
-                requirements = [
-                    r
-                    for r in requirements
-                    if not any(
-                        normalize_package_name(r.split("==")[0])
-                        == normalize_package_name(pkg)
-                        for pkg in removed
-                    )
-                ]
+        Args:
+            added: List of packages to add
+            removed: List of packages to remove
+            dev: Whether to update dev dependencies
+        """
+        if not self.requirements_path.exists():
+            # Create empty requirements file if it doesn't exist
+            self.requirements_path.touch()
 
-            # Add packages
-            if added:
-                # 先移除要新增的套件的舊版本（使用正規化名稱比較）
-                for pkg_spec in added:
-                    pkg_name = pkg_spec.split("==")[0]
-                    normalized_name = normalize_package_name(pkg_name)
-                    requirements = [
-                        r
-                        for r in requirements
-                        if normalize_package_name(r.split("==")[0])
-                        != normalized_name
-                    ]
+        # Read existing requirements
+        with open(self.requirements_path, "r") as f:
+            requirements = f.readlines()
 
-                # 取得已安裝套件的原始名稱
-                installed_packages = (
-                    self.package_analyzer.get_installed_packages()
-                )
-                new_requirements = []
+        # Remove packages if specified
+        if removed:
+            new_requirements = []
+            for req in requirements:
+                req = req.strip()
+                if not req or req.startswith("#"):
+                    new_requirements.append(req + "\n")
+                    continue
 
-                for pkg_spec in added:
-                    pkg_name, version = pkg_spec.split("==")
-                    normalized_name = normalize_package_name(pkg_name)
+                # Parse requirement to get package name
+                pkg_info = parse_requirement_string(req)
+                pkg_name = pkg_info[0]  # Get package name only
 
-                    # 如果套件已安裝，使用其原始名稱
-                    if normalized_name in installed_packages:
-                        original_name = installed_packages[normalized_name][
-                            "name"
-                        ]
-                        new_requirements.append(f"{original_name}=={version}")
-                    else:
-                        # 如果尚未安裝，使用提供的名稱
-                        new_requirements.append(pkg_spec)
+                if pkg_name not in removed:
+                    new_requirements.append(req + "\n")
+            requirements = new_requirements
 
-                # 加入新的套件規格（使用原始名稱）
-                requirements.extend(new_requirements)
+        # Add new packages if specified
+        if added:
+            # Convert added packages to set for deduplication
+            added_set = set()
+            for pkg_spec in added:
+                pkg_info = parse_requirement_string(pkg_spec)
+                pkg_name, pkg_extras, _, pkg_version = pkg_info
 
-            # Write back
-            with open(self.requirements_path, "w") as f:
-                f.write("\n".join(sorted(requirements)) + "\n")
-        except Exception as e:
-            raise RuntimeError(f"Failed to update requirements.txt: {str(e)}")
+                # Construct full package spec with extras
+                if pkg_extras:
+                    extras_str = f"[{','.join(sorted(pkg_extras))}]"
+                    full_pkg_name = f"{pkg_name}{extras_str}"
+                else:
+                    full_pkg_name = pkg_name
+
+                if pkg_version:
+                    added_set.add(f"{full_pkg_name}=={pkg_version}")
+                else:
+                    # Get installed version if not specified
+                    version = self._get_installed_version(pkg_name)
+                    if version:
+                        added_set.add(f"{full_pkg_name}=={version}")
+
+            # Remove existing entries for added packages
+            new_requirements = []
+            for req in requirements:
+                req = req.strip()
+                if not req or req.startswith("#"):
+                    new_requirements.append(req + "\n")
+                    continue
+
+                # Parse requirement to get package name
+                pkg_info = parse_requirement_string(req)
+                pkg_name = pkg_info[0]  # Get package name only
+
+                if pkg_name not in [
+                    p.split("==")[0].split("[")[0] for p in added_set
+                ]:
+                    new_requirements.append(req + "\n")
+
+            # Add new packages
+            new_requirements.extend(f"{pkg}\n" for pkg in sorted(added_set))
+            requirements = new_requirements
+
+        # Write updated requirements
+        with open(self.requirements_path, "w") as f:
+            f.writelines(requirements)
 
     def _get_pip_path(self) -> Path:
         """Get path to pip executable"""
