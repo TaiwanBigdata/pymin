@@ -366,24 +366,21 @@ def fix(yes: bool = False):
             with progress_status("Fixing duplicate package definitions..."):
                 for name, version in duplicate_packages:
                     try:
-                        # 使用 _update_requirements 方法來更新文件
-                        if Path("requirements.txt").exists():
-                            # 先讀取所有該套件的定義
-                            with open("requirements.txt", "r") as f:
-                                lines = f.readlines()
+                        if use_pyproject:
+                            # Initialize PyProjectManager
+                            from ...core.pyproject_manager import (
+                                PyProjectManager,
+                            )
 
-                            # 收集所有該套件的版本定義
-                            to_remove = []
-                            for line in lines:
-                                if line.strip() and not line.strip().startswith(
-                                    "#"
-                                ):
-                                    pkg_name = line.split("==")[0].strip()
-                                    if pkg_name == name:
-                                        to_remove.append(line.strip())
+                            proj_manager = PyProjectManager(
+                                Path("pyproject.toml")
+                            )
 
-                            # 清理版本字符串，移除前導的版本約束符號
-                            version_clean = version.lstrip("=")
+                            # 先移除所有該套件的定義
+                            proj_manager.remove_dependency(name)
+
+                            # 清理版本字符串，保留版本約束符號
+                            version_clean = version.strip()
                             if not any(
                                 version_clean.startswith(op)
                                 for op in [
@@ -396,18 +393,70 @@ def fix(yes: bool = False):
                                     "==",
                                 ]
                             ):
-                                version_clean = version_clean.strip()
+                                version_clean = f"=={version_clean}"
 
-                            # 使用 _update_requirements 更新文件
-                            manager.package_manager._update_requirements(
-                                removed=to_remove,
-                                added=[f"{name}=={version_clean}"],
+                            # 從版本字符串中提取約束符號和版本號
+                            constraint = ""
+                            for op in [">=", "<=", "!=", "~=", ">", "<", "=="]:
+                                if version_clean.startswith(op):
+                                    constraint = op
+                                    version_clean = version_clean[
+                                        len(op) :
+                                    ].strip()
+                                    break
+
+                            # 使用提取的約束符號和版本號重新添加依賴
+                            proj_manager.add_dependency(
+                                name, version_clean, constraint
                             )
-
                             fixed_count += 1
                             print_success(
-                                f"Fixed duplicate package [cyan]{name}[/cyan], keeping version [green]{version_clean}[/green]"
+                                f"Fixed duplicate package [cyan]{name}[/cyan], keeping version [green]{constraint}{version_clean}[/green]"
                             )
+                        else:
+                            # 處理 requirements.txt 的邏輯保持不變
+                            if Path("requirements.txt").exists():
+                                # 先讀取所有該套件的定義
+                                with open("requirements.txt", "r") as f:
+                                    lines = f.readlines()
+
+                                # 收集所有該套件的版本定義
+                                to_remove = []
+                                for line in lines:
+                                    if (
+                                        line.strip()
+                                        and not line.strip().startswith("#")
+                                    ):
+                                        pkg_name = line.split("==")[0].strip()
+                                        if pkg_name == name:
+                                            to_remove.append(line.strip())
+
+                                # 清理版本字符串，移除前導的版本約束符號
+                                version_clean = version.lstrip("=")
+                                if not any(
+                                    version_clean.startswith(op)
+                                    for op in [
+                                        ">=",
+                                        "<=",
+                                        "!=",
+                                        "~=",
+                                        ">",
+                                        "<",
+                                        "==",
+                                    ]
+                                ):
+                                    version_clean = version_clean.strip()
+
+                                # 使用 _update_requirements 更新文件
+                                manager.package_manager._update_requirements(
+                                    removed=to_remove,
+                                    added=[f"{name}=={version_clean}"],
+                                )
+
+                                fixed_count += 1
+                                print_success(
+                                    f"Fixed duplicate package [cyan]{name}[/cyan], keeping version [green]{version_clean}[/green]"
+                                )
                     except Exception as e:
                         error_count += 1
                         print_error(
