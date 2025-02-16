@@ -24,8 +24,33 @@ console = Console(force_terminal=True, color_system="auto")
 _current_status: Optional[Status] = None
 
 
+class StyledStatus:
+    def __init__(self, status: Status, use_default_style: bool):
+        self._status = status
+        self._use_default_style = use_default_style
+
+    def update(self, new_message: str):
+        # 根據 use_default_style 判斷是否包覆訊息
+        if self._use_default_style:
+            styled_message = (
+                f"[{StyleType.LOADING}]{new_message}[/{StyleType.LOADING}]"
+            )
+        else:
+            styled_message = new_message
+        self._status.update(styled_message)
+
+    def __getattr__(self, attr):
+        # 委派其他所有屬性與方法給原始 Status 物件
+        return getattr(self._status, attr)
+
+
 @contextmanager
-def progress_status(message: str):
+def progress_status(
+    message: str,
+    pre_callback: callable = None,
+    post_callback: callable = None,
+    use_default_style: bool = True,
+):
     """Display a progress status message with consistent styling.
 
     Args:
@@ -36,16 +61,30 @@ def progress_status(message: str):
             # Do some work here
             result = some_long_running_operation()
     """
+    if pre_callback:
+        pre_callback()
+
+    if use_default_style:
+        display_message = (
+            f"[{StyleType.LOADING}]{message}[/{StyleType.LOADING}]"
+        )
+    else:
+        display_message = message
+
     with Status(
-        f"[{StyleType.LOADING}]{message}[/{StyleType.LOADING}]",
+        display_message,
         console=console,
         spinner="dots",
         spinner_style=f"{StyleType.LOADING}",
     ) as status:
+        styled_status = StyledStatus(status, use_default_style)
         try:
-            yield status
+            yield styled_status
         finally:
             pass  # Status will be automatically cleared
+
+    if post_callback:
+        post_callback()
 
 
 def start_status(message: str) -> None:

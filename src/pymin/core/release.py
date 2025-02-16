@@ -11,7 +11,13 @@ import requests
 from packaging.version import parse, Version
 from rich.prompt import Confirm
 from rich.text import Text
-from ..ui.console import print_error, print_warning, print_success, console
+from ..ui.console import (
+    print_error,
+    print_warning,
+    print_success,
+    console,
+    progress_status,
+)
 import time
 
 
@@ -80,9 +86,9 @@ class PackageReleaser:
         if self.need_install:
             console.print("[blue]Installing required packages...[/blue]")
             for pkg in self.need_install:
-                with console.status(
+                with progress_status(
                     f"[blue]Installing [cyan]{pkg}[/cyan]...[/blue]",
-                    spinner="dots",
+                    use_default_style=False,
                 ) as status:
                     process = subprocess.run(
                         ["pip", "install", pkg],
@@ -108,8 +114,9 @@ class PackageReleaser:
 
         # Build package
         console.print("\n[blue]Building package...[/blue]")
-        with console.status(
-            "[blue]Building...[/blue]", spinner="dots"
+        with progress_status(
+            "[blue]Building...[/blue]",
+            use_default_style=False,
         ) as status:
             process = subprocess.run(
                 ["python", "-m", "build"],
@@ -198,26 +205,30 @@ password = {token}
         target = "Test PyPI" if test else "PyPI"
 
         console.print(f"\n[blue]Uploading to {target}...[/blue]")
-        try:
-            result = subprocess.run(
-                f"twine upload {repo_flag} --verbose --disable-progress-bar dist/*",
-                shell=True,
-                capture_output=True,
-                text=True,
-                env={"PYTHONIOENCODING": "utf-8", **os.environ},
-            )
-        except Exception as e:
-            print_error("Upload failed:")
-            print_error(str(e))
+        with progress_status(
+            f"[blue]Publishing...[/blue]",
+            use_default_style=False,
+        ) as status:
+            try:
+                result = subprocess.run(
+                    f"twine upload {repo_flag} --verbose --disable-progress-bar dist/*",
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    env={"PYTHONIOENCODING": "utf-8", **os.environ},
+                )
+            except Exception as e:
+                print_error("Upload failed:")
+                print_error(str(e))
+                return False
+
+            if result.returncode == 0:
+                print_success(f"Package published successfully to {target}")
+                return True
+
+            print_error(f"Upload to {target} failed")
+            self._handle_upload_error(result.stderr or result.stdout, test)
             return False
-
-        if result.returncode == 0:
-            print_success(f"Package published successfully to {target}")
-            return True
-
-        print_error(f"Upload to {target} failed")
-        self._handle_upload_error(result.stderr or result.stdout, test)
-        return False
 
     def _handle_upload_error(self, error_msg: str, test: bool) -> None:
         """Handle upload error messages"""
@@ -432,53 +443,58 @@ password = {token}
         """Clean up temporarily installed packages"""
         if self.need_install:
             console.print("\n[blue]Cleaning up temporary packages...[/blue]")
+            with progress_status(
+                "[blue]Cleaning...[/blue]",
+                use_default_style=False,
+            ) as status:
+                # 使用 VenvManager 來深度移除套件
+                from ..core.venv_manager import VenvManager
 
-            # 使用 VenvManager 來深度移除套件
-            from ..core.venv_manager import VenvManager
+                manager = VenvManager()
 
-            manager = VenvManager()
+                # 從 pyproject.toml 取得頂層套件作為排除清單
+                excluded_packages = []
+                if self.pyproject_path.exists():
+                    try:
+                        with open(self.pyproject_path, "rb") as f:
+                            pyproject = tomllib.load(f)
+                            if (
+                                "project" in pyproject
+                                and "dependencies" in pyproject["project"]
+                            ):
+                                for dep in pyproject["project"]["dependencies"]:
+                                    # 解析套件名稱（移除版本資訊）
+                                    pkg_name = (
+                                        dep.split(">=")[0]
+                                        .split("==")[0]
+                                        .split(">")[0]
+                                        .split("<")[0]
+                                        .strip()
+                                    )
+                                    excluded_packages.append(pkg_name)
+                    except Exception as e:
+                        print_warning(
+                            f"Warning: Failed to read pyproject.toml: {str(e)}"
+                        )
 
-            # 從 pyproject.toml 取得頂層套件作為排除清單
-            excluded_packages = []
-            if self.pyproject_path.exists():
-                try:
-                    with open(self.pyproject_path, "rb") as f:
-                        pyproject = tomllib.load(f)
-                        if (
-                            "project" in pyproject
-                            and "dependencies" in pyproject["project"]
-                        ):
-                            for dep in pyproject["project"]["dependencies"]:
-                                # 解析套件名稱（移除版本資訊）
-                                pkg_name = (
-                                    dep.split(">=")[0]
-                                    .split("==")[0]
-                                    .split(">")[0]
-                                    .split("<")[0]
-                                    .strip()
-                                )
-                                excluded_packages.append(pkg_name)
-                except Exception as e:
-                    print_warning(
-                        f"Warning: Failed to read pyproject.toml: {str(e)}"
-                    )
+                # 移除臨時安裝的套件，但排除 pyproject.toml 中的頂層套件
+                results = manager.remove_packages(
+                    self.need_install, excluded_packages=excluded_packages
+                )
 
-            # 移除臨時安裝的套件，但排除 pyproject.toml 中的頂層套件
-            results = manager.remove_packages(
-                self.need_install, excluded_packages=excluded_packages
-            )
-
-            # 只顯示主要套件的移除結果
-            for pkg_name in self.need_install:
-                info = results.get(pkg_name, {})
-                if info["status"] == "removed":
-                    print_success(f"Removed {pkg_name}")
-                elif info["status"] == "error":
-                    print_warning(
-                        f"Warning: Failed to remove {pkg_name}: {info.get('message', 'Unknown error')}"
-                    )
-                elif info["status"] == "not_found":
-                    print_warning(f"Warning: Package {pkg_name} was not found")
+                # 只顯示主要套件的移除結果
+                for pkg_name in self.need_install:
+                    info = results.get(pkg_name, {})
+                    if info["status"] == "removed":
+                        print_success(f"Removed {pkg_name}")
+                    elif info["status"] == "error":
+                        print_warning(
+                            f"Warning: Failed to remove {pkg_name}: {info.get('message', 'Unknown error')}"
+                        )
+                    elif info["status"] == "not_found":
+                        print_warning(
+                            f"Warning: Package {pkg_name} was not found"
+                        )
 
     def release(self, test: bool = False) -> bool:
         """
