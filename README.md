@@ -1,6 +1,6 @@
 # PyMin
 
-### pymin (0.0.15)
+### pymin (0.0.16)
 
 PyMin embodies Python's minimalist philosophy: a focused tool that does one thing exceptionally well. The name reflects our commitment to minimalism - minimal configuration, minimal complexity, but maximum effectiveness in Python development workflow.
 
