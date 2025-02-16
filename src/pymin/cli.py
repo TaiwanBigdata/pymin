@@ -9,6 +9,7 @@ from pathlib import Path
 import os
 import sys
 import tomllib
+from importlib.metadata import version
 from .core.package_analyzer import PackageAnalyzer
 from .commands.venv.info_command import info
 from .commands.venv.activate_command import activate
@@ -31,17 +32,13 @@ from .ui.style import DEFAULT_PANEL, PanelConfig, StyleType
 from typing import Union, List, Dict
 from .core.version_checker import check_for_updates
 
-# Create package analyzer instance
-pkg_analyzer = PackageAnalyzer()
-
-# Get version from pyproject.toml
 try:
-    with open(
-        Path(__file__).parent.parent.parent / "pyproject.toml", "rb"
-    ) as f:
-        __version__ = tomllib.load(f)["project"]["version"]
+    __version__ = version("pymin")
 except Exception:
     __version__ = "unknown"
+
+# Create package analyzer instance
+pkg_analyzer = PackageAnalyzer()
 
 # Check for updates before anything else
 check_for_updates()

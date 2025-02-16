@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pymin"
-version = "0.0.16"
+version = "0.0.18"
 description = "A minimalist Python CLI tool for development workflow. Named after Taiwanese '歹命' (Pháiⁿ-miā), it turns common development pain points into simple solutions, providing package name validation, virtual environment management, and project information display with minimal configuration."
 readme = "README.md"
 requires-python = ">=3.8"
@@ -72,7 +72,7 @@ pm = "pymin.cli:cli"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
-packages = ["pymin"]
+packages = { find = { where = ["src"], include = ["pymin*"] } }
 include-package-data = true
 
 [tool.black]
