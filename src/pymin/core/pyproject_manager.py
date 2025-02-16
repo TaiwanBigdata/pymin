@@ -43,7 +43,23 @@ class PyProjectManager:
             self._data = tomlkit.parse(f.read())
 
     def _write(self) -> None:
-        """Write current data back to pyproject.toml"""
+        """Write changes to pyproject.toml"""
+        if "project" in self._data and "dependencies" in self._data["project"]:
+            # 對依賴進行排序
+            deps = list(self._data["project"]["dependencies"])
+            sorted_deps = sorted(deps, key=lambda x: x.lower())
+
+            # 創建新的 tomlkit array 並保持多行格式
+            new_deps = tomlkit.array()
+            new_deps.multiline(True)
+
+            # 添加排序後的依賴
+            for dep in sorted_deps:
+                new_deps.append(dep)
+
+            # 替換原有的依賴列表
+            self._data["project"]["dependencies"] = new_deps
+
         with self.file_path.open("w", encoding="utf-8") as f:
             f.write(tomlkit.dumps(self._data))
 

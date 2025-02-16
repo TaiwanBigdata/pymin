@@ -947,6 +947,19 @@ class PackageAnalyzer:
                     inconsistencies[PackageStatus.DUPLICATE].append(
                         (dep_info.name, versions)
                     )
+                    # 檢查最終版本（最後一個）是否與安裝版本相容
+                    if pkg_id in installed_packages:
+                        installed_version = installed_packages[pkg_id][
+                            "installed_version"
+                        ]
+                        final_version = versions[-1]
+                        if not self._check_version_compatibility(
+                            installed_version, final_version
+                        ):
+                            # 只在這裡添加版本不符，後面的檢查會跳過已經處理過的重複定義套件
+                            inconsistencies[
+                                PackageStatus.VERSION_MISMATCH
+                            ].append((dep_info.name, final_version))
 
         # 收集所有依賴關係（包含子依賴和孫依賴），使用標準化的 ID
         all_dependencies_ids = set()
@@ -986,35 +999,36 @@ class PackageAnalyzer:
                 )
                 continue
 
-            # 檢查版本是否匹配
-            installed_version = installed_packages[normalized_id][
-                "installed_version"
-            ]
+            # 檢查版本是否匹配（跳過已經處理過的重複定義套件）
+            if normalized_id not in duplicates:
+                installed_version = installed_packages[normalized_id][
+                    "installed_version"
+                ]
 
-            # 根據來源選擇正確的版本規範
-            if use_pyproject:
-                # 如果使用 pyproject.toml，優先使用其版本規範
-                version_for_check = dep_info.versions.get(
-                    DependencySource.PYPROJECT, ""
-                )
-                # 如果套件不在 pyproject.toml 中，才使用 requirements.txt 的版本
-                if not version_for_check:
+                # 根據來源選擇正確的版本規範
+                if use_pyproject:
+                    # 如果使用 pyproject.toml，優先使用其版本規範
+                    version_for_check = dep_info.versions.get(
+                        DependencySource.PYPROJECT, ""
+                    )
+                    # 如果套件不在 pyproject.toml 中，才使用 requirements.txt 的版本
+                    if not version_for_check:
+                        version_for_check = dep_info.versions.get(
+                            DependencySource.REQUIREMENTS, ""
+                        )
+                else:
+                    # 如果使用 requirements.txt，使用其版本規範
                     version_for_check = dep_info.versions.get(
                         DependencySource.REQUIREMENTS, ""
                     )
-            else:
-                # 如果使用 requirements.txt，使用其版本規範
-                version_for_check = dep_info.versions.get(
-                    DependencySource.REQUIREMENTS, ""
-                )
 
-            if version_for_check and not self._check_version_compatibility(
-                installed_version, version_for_check
-            ):
-                # 將版本規範資訊一併儲存，以便後續顯示
-                inconsistencies[PackageStatus.VERSION_MISMATCH].append(
-                    (dep_info.name, version_for_check)
-                )
+                if version_for_check and not self._check_version_compatibility(
+                    installed_version, version_for_check
+                ):
+                    # 將版本規範資訊一併儲存，以便後續顯示
+                    inconsistencies[PackageStatus.VERSION_MISMATCH].append(
+                        (dep_info.name, version_for_check)
+                    )
 
         # 檢查已安裝但不在 requirements 中的套件
         for pkg_id, pkg_info in installed_packages.items():
