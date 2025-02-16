@@ -463,8 +463,35 @@ password = {token}
 
             manager = VenvManager()
 
-            # 移除臨時安裝的套件
-            results = manager.remove_packages(self.need_install)
+            # 從 pyproject.toml 取得頂層套件作為排除清單
+            excluded_packages = []
+            if self.pyproject_path.exists():
+                try:
+                    with open(self.pyproject_path, "rb") as f:
+                        pyproject = tomllib.load(f)
+                        if (
+                            "project" in pyproject
+                            and "dependencies" in pyproject["project"]
+                        ):
+                            for dep in pyproject["project"]["dependencies"]:
+                                # 解析套件名稱（移除版本資訊）
+                                pkg_name = (
+                                    dep.split(">=")[0]
+                                    .split("==")[0]
+                                    .split(">")[0]
+                                    .split("<")[0]
+                                    .strip()
+                                )
+                                excluded_packages.append(pkg_name)
+                except Exception as e:
+                    print_warning(
+                        f"Warning: Failed to read pyproject.toml: {str(e)}"
+                    )
+
+            # 移除臨時安裝的套件，但排除 pyproject.toml 中的頂層套件
+            results = manager.remove_packages(
+                self.need_install, excluded_packages=excluded_packages
+            )
 
             # 只顯示主要套件的移除結果
             for pkg_name in self.need_install:

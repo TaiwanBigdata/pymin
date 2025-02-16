@@ -426,11 +426,14 @@ class VenvManager:
     def remove_packages(
         self,
         packages: List[str],
+        excluded_packages: Optional[List[str]] = None,
     ) -> Dict[str, Dict[str, Any]]:
         """Remove packages from the virtual environment"""
         if not self.package_manager:
             raise ValueError("No active virtual environment")
-        results = self.package_manager.remove_packages(packages)
+        results = self.package_manager.remove_packages(
+            packages, excluded_packages=excluded_packages
+        )
         # Clear package analyzer cache after removing packages
         self.package_analyzer.clear_cache()
         return results

@@ -47,9 +47,9 @@ classifiers = [
 ]
 dependencies = [
     "click>=8.0.0",
-    "rich>=10.0.0",
-    "requests>=2.31.0",
     "packaging>=21.0",
+    "requests>=2.31.0",
+    "rich>=10.0.0",
     "tomlkit>=0.11.0",
 ]
 

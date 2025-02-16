@@ -323,17 +323,21 @@ class PackageManager:
         return results
 
     def get_packages_to_remove(
-        self, package_names: List[str]
+        self,
+        package_names: List[str],
+        excluded_packages: Optional[List[str]] = None,
     ) -> Dict[str, List[Dict[str, str]]]:
         """
-        取得多個頂層套件的獨有依賴（包含自身）的清單
+        取得多個頂層套件的獨有依賴（包含自身）的清單，
+        並預先排除指定套件（排除套件會視同共用依賴，不會列入刪除清單）
 
         Args:
-            package_names: 要移除的套件列表
+        package_names: 要移除的套件列表
+        excluded_packages: 預先排除的套件列表
 
         Returns:
-            Dict[str, List[Dict[str, str]]]: 格式為
-            {頂層套件名稱: [{name: 套件名稱, installed_version: 版本}, ...]}
+        Dict[str, List[Dict[str, str]]]: 格式為
+        {頂層套件名稱: [{name: 套件名稱, installed_version: 版本}, ...]}
         """
         # 取得完整依賴樹
         dependency_tree = self.package_analyzer.get_dependency_tree()
@@ -360,23 +364,30 @@ class PackageManager:
         removal_candidates = {}
         for pkg_name in package_names:
             if pkg_name not in dependency_tree:
-                print(f"找不到頂層套件 {pkg_name}")
                 continue
             removal_candidates[pkg_name] = gather_deps(
                 dependency_tree[pkg_name]
             )
 
-        # 收集非欲移除頂層套件及其所有依賴（共用依賴）
+        # 收集非欲移除頂層套件及其所有依賴（視為共用依賴）
         non_removal_deps = {}
         for pkg_name in non_removal_top_levels:
             non_removal_deps.update(gather_deps(dependency_tree[pkg_name]))
 
-        # 排除共用依賴，取得獨有依賴
+        # 將排除的套件轉為集合
+        excluded_set = (
+            set(excluded_packages) if excluded_packages is not None else set()
+        )
+
+        # 排除共用依賴以及預先排除的套件，取得獨有依賴
         result = {}
         for top_pkg, candidate in removal_candidates.items():
             removable = {}
             for pkg_name, pkg_info in candidate.items():
-                if pkg_name not in non_removal_deps:
+                if (
+                    pkg_name not in non_removal_deps
+                    and pkg_name not in excluded_set
+                ):
                     removable[pkg_name] = pkg_info
             result[top_pkg] = [
                 {
@@ -391,6 +402,7 @@ class PackageManager:
     def remove_packages(
         self,
         packages: List[str],
+        excluded_packages: Optional[List[str]] = None,
     ) -> Dict[str, Dict[str, Any]]:
         """
         移除套件及其不再需要的依賴
@@ -405,7 +417,9 @@ class PackageManager:
         dependency_tree = self.package_analyzer.get_dependency_tree()
 
         # 取得所有可以安全移除的套件
-        removable_packages = self.get_packages_to_remove(packages)
+        removable_packages = self.get_packages_to_remove(
+            packages, excluded_packages
+        )
         all_to_remove = set()  # 收集所有要移除的套件名稱
         pkg_versions = {}  # 收集所有套件的版本資訊
 
