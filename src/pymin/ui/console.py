@@ -542,12 +542,12 @@ def create_package_summary(
 
     # Only show non-zero status counts in priority order
     status_order = [
-        "redundant",  # 優先級 1：冗餘（影響依賴結構）
-        "duplicate",  # 優先級 2：重複定義
-        "version_mismatch",  # 優先級 3：版本不匹配
-        "not_installed",  # 優先級 4：未安裝
-        "not_in_requirements",  # 優先級 5：未在需求文件中
-        "normal",  # 優先級 6：正常
+        "redundant",  # Priority 1: Affects dependency structure
+        "duplicate",  # Priority 2: Duplicate definitions
+        "version_mismatch",  # Priority 3: Version mismatches
+        "not_installed",  # Priority 4: Not installed
+        "not_in_requirements",  # Priority 5: Not in requirements
+        "normal",  # Priority 6: Normal state
     ]
     for status in status_order:
         if status_counts[status] > 0:

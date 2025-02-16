@@ -57,21 +57,23 @@ class PackageStatus(str, Enum):
     def get_priority(status: str) -> int:
         """Get priority value for status ordering (lower number = higher priority)"""
         priorities = {
-            "redundant": 1,  # 冗餘（最嚴重，影響依賴結構）
-            "duplicate": 2,  # 重複定義（次嚴重，可能導致版本衝突）
-            "version_mismatch": 3,  # 版本不匹配（重要但不如結構性問題嚴重）
-            "not_installed": 4,  # 未安裝（可以輕易修復）
-            "not_in_requirements": 5,  # 未在需求文件中（次要問題）
-            "normal": 6,  # 正常
+            "redundant": 1,  # Most severe: affects dependency structure
+            "duplicate": 2,  # Second severe: may cause version conflicts
+            "version_mismatch": 3,  # Important but not as severe as structural issues
+            "not_installed": 4,  # Easy to fix
+            "not_in_requirements": 5,  # Minor issue
+            "normal": 6,  # Normal state
         }
-        return priorities.get(str(status).lower(), 99)  # 未知狀態給予最低優先級
+        return priorities.get(
+            str(status).lower(), 99
+        )  # Lowest priority for unknown status
 
     @classmethod
     def get_fix_order(cls) -> List["PackageStatus"]:
         """Get list of statuses in fix priority order (excluding NORMAL)"""
-        # 獲取所有非 NORMAL 的狀態
+        # Get all statuses except NORMAL
         statuses = [status for status in cls if status != cls.NORMAL]
-        # 根據優先級排序
+        # Sort by priority
         return sorted(statuses, key=lambda s: cls.get_priority(s))
 
 
@@ -102,8 +104,10 @@ class DependencyInfo:
     """
 
     def __init__(self, name: str, version_spec: str, source: DependencySource):
-        self.name = name  # 原始名稱（保留大小寫）
-        self.id = normalize_package_name(name)  # 標準化 ID（用於比較和查找）
+        self.name = name  # Original name (preserves case)
+        self.id = normalize_package_name(
+            name
+        )  # Normalized ID (for comparison and lookup)
         self._version_spec = version_spec
         self.source = source
         self.versions: Dict[DependencySource, str] = {}

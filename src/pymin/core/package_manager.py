@@ -328,21 +328,21 @@ class PackageManager:
         excluded_packages: Optional[List[str]] = None,
     ) -> Dict[str, List[Dict[str, str]]]:
         """
-        取得多個頂層套件的獨有依賴（包含自身）的清單，
-        並預先排除指定套件（排除套件會視同共用依賴，不會列入刪除清單）
+        Get a list of unique dependencies (including itself) for multiple top-level packages,
+        excluding specified packages (excluded packages will be considered as shared dependencies and not included in the removal list)
 
         Args:
-        package_names: 要移除的套件列表
-        excluded_packages: 預先排除的套件列表
+        package_names: List of packages to remove
+        excluded_packages: List of packages to exclude
 
         Returns:
-        Dict[str, List[Dict[str, str]]]: 格式為
-        {頂層套件名稱: [{name: 套件名稱, installed_version: 版本}, ...]}
+        Dict[str, List[Dict[str, str]]]: Format is
+        {top-level package name: [{name: package name, installed_version: version}, ...]}
         """
-        # 取得完整依賴樹
+        # Get full dependency tree
         dependency_tree = self.package_analyzer.get_dependency_tree()
 
-        # 內嵌函式：遞迴收集該套件及其所有依賴
+        # Internal function: Recursively collect dependencies of a package and its sub-dependencies
         def gather_deps(
             pkg_obj: Dict, visited: Optional[Set[str]] = None
         ) -> Dict[str, Dict]:
@@ -360,7 +360,7 @@ class PackageManager:
         removal_set = set(package_names)
         non_removal_top_levels = set(dependency_tree.keys()) - removal_set
 
-        # 針對每個欲移除套件收集候選依賴集合
+        # Collect removal candidates for each package to be removed
         removal_candidates = {}
         for pkg_name in package_names:
             if pkg_name not in dependency_tree:
@@ -369,17 +369,17 @@ class PackageManager:
                 dependency_tree[pkg_name]
             )
 
-        # 收集非欲移除頂層套件及其所有依賴（視為共用依賴）
+        # Collect non-removal top-level packages and their dependencies (considered as shared dependencies)
         non_removal_deps = {}
         for pkg_name in non_removal_top_levels:
             non_removal_deps.update(gather_deps(dependency_tree[pkg_name]))
 
-        # 將排除的套件轉為集合
+        # Convert excluded packages to set
         excluded_set = (
             set(excluded_packages) if excluded_packages is not None else set()
         )
 
-        # 排除共用依賴以及預先排除的套件，取得獨有依賴
+        # Exclude shared dependencies and pre-excluded packages, get unique dependencies
         result = {}
         for top_pkg, candidate in removal_candidates.items():
             removable = {}
@@ -405,32 +405,32 @@ class PackageManager:
         excluded_packages: Optional[List[str]] = None,
     ) -> Dict[str, Dict[str, Any]]:
         """
-        移除套件及其不再需要的依賴
+        Remove packages and their unnecessary dependencies
 
         Args:
-            packages: 要移除的套件列表
+            packages: List of packages to remove
 
         Returns:
-            移除結果的字典
+            Dict containing removal results
         """
         results = {}
         dependency_tree = self.package_analyzer.get_dependency_tree()
 
-        # 取得所有可以安全移除的套件
+        # Get all packages that can be safely removed
         removable_packages = self.get_packages_to_remove(
             packages, excluded_packages
         )
-        all_to_remove = set()  # 收集所有要移除的套件名稱
-        pkg_versions = {}  # 收集所有套件的版本資訊
+        all_to_remove = set()  # Collect all packages to remove
+        pkg_versions = {}  # Collect all package version information
 
-        # 收集所有要移除的套件及其版本資訊
+        # Collect all packages and their version information to remove
         for pkg_deps in removable_packages.values():
             for dep in pkg_deps:
                 pkg_name = dep["name"]
                 all_to_remove.add(pkg_name)
                 pkg_versions[pkg_name] = dep["installed_version"]
 
-        # 先檢查要移除的頂層套件是否存在
+        # First check if the top-level packages to remove exist
         for pkg_name in packages:
             pkg_info = dependency_tree.get(pkg_name, {})
             if not pkg_info:
@@ -438,19 +438,21 @@ class PackageManager:
                     "status": "not_found",
                     "message": f"Package {pkg_name} is not installed",
                 }
-                all_to_remove.discard(pkg_name)  # 從移除列表中移除不存在的套件
+                all_to_remove.discard(
+                    pkg_name
+                )  # Remove from removal list if not found
                 continue
 
-            # 收集這個套件特有的依賴
+            # Collect this package's unique dependencies
             removable_deps = {}
             pkg_deps = removable_packages.get(pkg_name, [])
             for dep in pkg_deps:
                 dep_name = dep["name"]
-                if dep_name != pkg_name:  # 排除自己
+                if dep_name != pkg_name:  # Exclude itself
                     removable_deps[dep_name] = dep["installed_version"]
 
             try:
-                # 執行 pip uninstall
+                # Execute pip uninstall
                 process = subprocess.run(
                     [str(self._pip_path), "uninstall", "-y", pkg_name],
                     capture_output=True,
@@ -475,10 +477,10 @@ class PackageManager:
                     "message": str(e),
                 }
 
-        # 移除剩餘的依賴套件
+        # Remove remaining dependency packages
         remaining_deps = all_to_remove - set(packages)
         for dep_name in sorted(remaining_deps):
-            if dep_name not in results:  # 避免重複移除
+            if dep_name not in results:  # Avoid duplicate removal
                 try:
                     process = subprocess.run(
                         [str(self._pip_path), "uninstall", "-y", dep_name],
@@ -504,7 +506,7 @@ class PackageManager:
                         "message": str(e),
                     }
 
-        # 更新依賴檔案
+        # Update dependency files
         self._update_dependency_files(removed=list(all_to_remove))
 
         return results
@@ -760,10 +762,10 @@ class PackageManager:
         Returns:
             Dict containing installation results with status and additional info
         """
-        # 清理並格式化版本字符串
+        # Clean and format version string
         if version:
             version = str(version).strip()
-            # 如果版本字符串不包含版本約束符號，添加 ==
+            # If version string does not contain version constraints, add ==
             if not any(
                 version.startswith(op)
                 for op in [">=", "<=", "!=", "~=", ">", "<", "=="]
@@ -775,7 +777,7 @@ class PackageManager:
         else:
             package_spec = package_name
 
-        # 嘗試安裝
+        # Try to install
         results = self.add_packages(
             [package_spec],
             dev=dev,
@@ -785,19 +787,19 @@ class PackageManager:
 
         pkg_info = results.get(package_name, {})
 
-        # 如果安裝失敗，檢查是否需要自動修復
+        # If installation fails, check if automatic fixing is needed
         if pkg_info.get("status") != "installed":
             error_msg = pkg_info.get("message", "")
             version_info = pkg_info.get("version_info", {})
 
-            # 檢查是否為版本相關錯誤
+            # Check if it's a version-related error
             if (
                 "Version not found" in error_msg
                 or "No matching distribution" in error_msg
                 or "Could not find a version that satisfies the requirement"
                 in error_msg
             ) and version_info:
-                # 獲取最新版本
+                # Get latest version
                 latest_version = (
                     version_info["latest_versions"]
                     .split(",")[0]
@@ -807,7 +809,7 @@ class PackageManager:
                     .replace(" (latest)", "")
                 )
 
-                # 分析更新原因
+                # Analyze update reason
                 if (
                     "Python version" in error_msg
                     or "requires Python" in error_msg
@@ -823,7 +825,7 @@ class PackageManager:
                 else:
                     update_reason = "Installation failed"
 
-                # 使用最新版本重試
+                # Use latest version to retry
                 retry_results = self.add_packages(
                     [f"{package_name}=={latest_version}"],
                     dev=dev,
@@ -839,7 +841,7 @@ class PackageManager:
                     retry_info["installed_version"] = latest_version
                     return retry_info
 
-                # 如果重試也失敗，返回重試的錯誤信息
+                # If retry also fails, return retry error information
                 return retry_info
 
         return pkg_info

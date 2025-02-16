@@ -45,19 +45,19 @@ class PyProjectManager:
     def _write(self) -> None:
         """Write changes to pyproject.toml"""
         if "project" in self._data and "dependencies" in self._data["project"]:
-            # 對依賴進行排序
+            # Sort dependencies
             deps = list(self._data["project"]["dependencies"])
             sorted_deps = sorted(deps, key=lambda x: x.lower())
 
-            # 創建新的 tomlkit array 並保持多行格式
+            # Create new tomlkit array and maintain multiline format
             new_deps = tomlkit.array()
             new_deps.multiline(True)
 
-            # 添加排序後的依賴
+            # Add sorted dependencies
             for dep in sorted_deps:
                 new_deps.append(dep)
 
-            # 替換原有的依賴列表
+            # Replace original dependency list
             self._data["project"]["dependencies"] = new_deps
 
         with self.file_path.open("w", encoding="utf-8") as f:
@@ -137,7 +137,7 @@ class PyProjectManager:
             new_dep_list = tomlkit.array()
             new_dep_list.multiline(True)
 
-            # 解析要移除的套件名稱（忽略 extras，因為要移除所有版本）
+            # Parse package name to remove (ignore extras as we'll remove all versions)
             remove_name, _, _, _ = parse_requirement_string(package_name)
             normalized_remove_name = normalize_package_name(remove_name)
 
@@ -148,7 +148,7 @@ class PyProjectManager:
                         current_name
                     )
 
-                    # 如果基礎套件名稱不同，保留該套件
+                    # Keep package if base name is different
                     if normalized_current_name != normalized_remove_name:
                         new_dep_list.append(dep)
                 except ValueError:

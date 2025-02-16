@@ -482,7 +482,7 @@ password = {token}
                     self.need_install, excluded_packages=excluded_packages
                 )
 
-                # 只顯示主要套件的移除結果
+                # Display removal results for main packages only
                 for pkg_name in self.need_install:
                     info = results.get(pkg_name, {})
                     if info["status"] == "removed":

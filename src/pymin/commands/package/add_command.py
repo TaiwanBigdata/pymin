@@ -66,13 +66,13 @@ def add(
         if editable:
             args = ["-e"] + args
 
-        # 過濾掉其他選項
+        # Filter out other options
         filtered_packages = [p for p in args if not p.startswith("-")]
 
         with progress_status("Installing packages..."):
             # Install packages without updating requirements.txt if using pyproject.toml
             if use_pyproject:
-                # 暫時禁用 requirements.txt 更新
+                # Temporarily disable requirements.txt updates
                 original_update_requirements = (
                     manager.package_manager._update_requirements
                 )
@@ -87,12 +87,12 @@ def add(
                         editable=editable,
                     )
                 finally:
-                    # 恢復原始的更新函數
+                    # Restore original update function
                     manager.package_manager._update_requirements = (
                         original_update_requirements
                     )
             else:
-                # 正常安裝並更新 requirements.txt
+                # Normal installation with requirements.txt update
                 results = manager.add_packages(
                     filtered_packages,
                     dev=dev,
@@ -196,7 +196,7 @@ def add(
                         f"Trying latest version {latest_version}..."
                     ):
                         if use_pyproject:
-                            # 暫時禁用 requirements.txt 更新
+                            # Temporarily disable requirements.txt updates
                             original_update_requirements = (
                                 manager.package_manager._update_requirements
                             )
@@ -211,12 +211,12 @@ def add(
                                     editable=editable,
                                 )
                             finally:
-                                # 恢復原始的更新函數
+                                # Restore original update function
                                 manager.package_manager._update_requirements = (
                                     original_update_requirements
                                 )
 
-                            # 如果安裝成功，更新 pyproject.toml
+                            # If installation is successful, update pyproject.toml
                             retry_info = retry_results.get(pkg, {})
                             if retry_info.get("status") == "installed":
                                 version = retry_info["version"]
