@@ -75,18 +75,34 @@ class DependencySource(str, Enum):
 class DependencyInfo:
     """
     Dependency information container
+    Stores both original name and normalized id for package identification
     """
 
     def __init__(self, name: str, version_spec: str, source: DependencySource):
-        self.name = name
+        self.name = name  # 原始名稱（保留大小寫）
+        self.id = normalize_package_name(name)  # 標準化 ID（用於比較和查找）
         self._version_spec = version_spec
         self.source = source
         self.versions: Dict[DependencySource, str] = {}
         self.extras: Optional[Set[str]] = None
+        self.version_history: Dict[str, str] = {
+            name: version_spec
+        }  # 追蹤不同名稱版本的歷史
+
+    def __eq__(self, other: "DependencyInfo") -> bool:
+        # 使用 ID 進行比較
+        if not isinstance(other, DependencyInfo):
+            return False
+        return self.id == other.id
+
+    def __hash__(self) -> int:
+        # 使用 ID 作為 hash key
+        return hash(self.id)
 
     def set_version(self, version: str, source: DependencySource):
         """Set version for specific source"""
         self.versions[source] = version
+        self.version_history[self.name] = version
 
     def get_version_info(self) -> Dict[str, Dict[str, str]]:
         """
@@ -194,6 +210,7 @@ class DependencyInfo:
     @version_spec.setter
     def version_spec(self, value: str):
         self._version_spec = value
+        self.version_history[self.name] = value
 
 
 class PackageAnalyzer:
@@ -271,11 +288,11 @@ class PackageAnalyzer:
         Parse requirements.txt and pyproject.toml files and return package information
 
         Returns:
-            Dictionary mapping package names to DependencyInfo objects
+            Dictionary mapping package IDs to DependencyInfo objects
         """
         if self._requirements_cache is None:
             self._requirements_cache = {}
-            sources: Dict[str, Set[DependencySource]] = {}
+            sources: Dict[str, Set[DependencySource]] = {}  # 使用 ID 作為鍵
 
             # Parse requirements.txt
             req_file = self.project_path / "requirements.txt"
@@ -291,17 +308,20 @@ class PackageAnalyzer:
                                 if name is None:
                                     continue
 
+                                pkg_id = normalize_package_name(name)
                                 spec = (
                                     f"{constraint}{version}"
                                     if constraint and version
                                     else ""
                                 )
 
-                                if name not in sources:
-                                    sources[name] = set()
-                                sources[name].add(DependencySource.REQUIREMENTS)
+                                if pkg_id not in sources:
+                                    sources[pkg_id] = set()
+                                sources[pkg_id].add(
+                                    DependencySource.REQUIREMENTS
+                                )
 
-                                if name not in self._requirements_cache:
+                                if pkg_id not in self._requirements_cache:
                                     dep_info = DependencyInfo(
                                         name=name,
                                         version_spec=spec,
@@ -309,8 +329,13 @@ class PackageAnalyzer:
                                     )
                                     if extras:
                                         dep_info.extras = extras
-                                    self._requirements_cache[name] = dep_info
-                                self._requirements_cache[name].set_version(
+                                    self._requirements_cache[pkg_id] = dep_info
+                                else:
+                                    # 更新現有條目的版本歷史
+                                    self._requirements_cache[
+                                        pkg_id
+                                    ].version_history[name] = spec
+                                self._requirements_cache[pkg_id].set_version(
                                     spec, DependencySource.REQUIREMENTS
                                 )
                             except Exception as e:
@@ -338,17 +363,18 @@ class PackageAnalyzer:
                                 if name is None:
                                     continue
 
+                                pkg_id = normalize_package_name(name)
                                 spec = (
                                     f"{constraint}{version}"
                                     if constraint and version
                                     else ""
                                 )
 
-                                if name not in sources:
-                                    sources[name] = set()
-                                sources[name].add(DependencySource.PYPROJECT)
+                                if pkg_id not in sources:
+                                    sources[pkg_id] = set()
+                                sources[pkg_id].add(DependencySource.PYPROJECT)
 
-                                if name not in self._requirements_cache:
+                                if pkg_id not in self._requirements_cache:
                                     dep_info = DependencyInfo(
                                         name=name,
                                         version_spec=spec,
@@ -356,8 +382,13 @@ class PackageAnalyzer:
                                     )
                                     if extras:
                                         dep_info.extras = extras
-                                    self._requirements_cache[name] = dep_info
-                                self._requirements_cache[name].set_version(
+                                    self._requirements_cache[pkg_id] = dep_info
+                                else:
+                                    # 更新現有條目的版本歷史
+                                    self._requirements_cache[
+                                        pkg_id
+                                    ].version_history[name] = spec
+                                self._requirements_cache[pkg_id].set_version(
                                     spec, DependencySource.PYPROJECT
                                 )
                             except Exception as e:
@@ -369,9 +400,9 @@ class PackageAnalyzer:
                     print(f"Warning: Error reading pyproject.toml: {e}")
 
             # Update sources for packages that appear in both files
-            for name, src_set in sources.items():
-                if name in self._requirements_cache:
-                    self._requirements_cache[name].source = (
+            for pkg_id, src_set in sources.items():
+                if pkg_id in self._requirements_cache:
+                    self._requirements_cache[pkg_id].source = (
                         DependencySource.combine(src_set)
                     )
 
@@ -502,15 +533,20 @@ class PackageAnalyzer:
 
     def _get_package_info(
         self,
-        pkg_name: str,
+        pkg_id: str,
         installed_packages: Dict,
         requirements: Dict[str, DependencyInfo],
         all_dependencies: Set[str],
     ) -> Dict:
-        """Get standardized package information"""
-        pkg_info = installed_packages.get(pkg_name, {})
+        """Get standardized package information using package ID"""
+        pkg_info = installed_packages.get(pkg_id, {})
         installed_version = pkg_info.get("installed_version")
-        dep_info = requirements.get(pkg_name)
+        dep_info = requirements.get(pkg_id)
+
+        # 使用原始名稱進行顯示，但用 ID 進行邏輯判斷
+        display_name = pkg_info.get(
+            "name", dep_info.name if dep_info else pkg_id
+        )
 
         # Format required version with source indicator
         required_version = dep_info.format_version() if dep_info else None
@@ -521,14 +557,14 @@ class PackageAnalyzer:
         if dep_info and hasattr(dep_info, "extras"):
             extras = dep_info.extras
 
-        is_installed = pkg_name in installed_packages
+        is_installed = pkg_id in installed_packages
 
         # Determine package status
-        if not is_installed and pkg_name in requirements:
+        if not is_installed and pkg_id in requirements:
             status = PackageStatus.NOT_INSTALLED
-        elif pkg_name in all_dependencies and pkg_name in requirements:
+        elif pkg_id in all_dependencies and pkg_id in requirements:
             status = PackageStatus.REDUNDANT
-        elif is_installed and pkg_name not in requirements:
+        elif is_installed and pkg_id not in requirements:
             status = PackageStatus.NOT_IN_REQUIREMENTS
         elif is_installed and version_for_check:
             if not self._check_version_compatibility(
@@ -541,14 +577,17 @@ class PackageAnalyzer:
             status = PackageStatus.NORMAL
 
         return {
-            "name": pkg_info.get("name", pkg_name),
+            "name": display_name,
+            "id": pkg_id,  # 添加 ID 到返回的信息中
             "installed_version": installed_version,
             "required_version": required_version,
-            "extras": extras,  # Add extras information
+            "extras": extras,
             "dependencies": sorted(pkg_info.get("dependencies", [])),
             "status": status.value,
-            "redundant": pkg_name in all_dependencies
-            and pkg_name in requirements,
+            "redundant": pkg_id in all_dependencies and pkg_id in requirements,
+            "version_history": (
+                dep_info.version_history if dep_info else {}
+            ),  # 添加版本歷史
         }
 
     def _get_package_dependencies(
@@ -595,6 +634,9 @@ class PackageAnalyzer:
     ) -> Dict[str, Dict]:
         """
         Get all installed packages and their information, sorted alphabetically
+
+        Returns:
+            Dictionary mapping package IDs to package information
         """
         if not self.has_venv:
             return {}
@@ -613,19 +655,20 @@ class PackageAnalyzer:
                                 info_dir
                             )
                             original_name = dist.metadata["Name"]
-                            normalized_name = self._normalize_package_name(
+                            normalized_id = self._normalize_package_name(
                                 original_name
                             )
                             installed_version = dist.metadata["Version"]
 
                             if (
                                 exclude_system
-                                and normalized_name in system_packages
+                                and normalized_id in system_packages
                             ):
                                 continue
 
-                            packages_info[normalized_name] = {
+                            packages_info[normalized_id] = {
                                 "name": original_name,
+                                "id": normalized_id,  # 添加 ID 到套件信息中
                                 "installed_version": installed_version,
                                 "dependencies": self._get_package_dependencies(
                                     dist, exclude_system
@@ -640,12 +683,15 @@ class PackageAnalyzer:
 
                 all_dependencies = set()
                 for pkg_info in packages_info.values():
-                    all_dependencies.update(pkg_info["dependencies"])
+                    all_dependencies.update(
+                        self._normalize_package_name(dep)
+                        for dep in pkg_info["dependencies"]
+                    )
 
                 requirements = self._parse_requirements()
-                for pkg_name in list(packages_info.keys()):
-                    packages_info[pkg_name] = self._get_package_info(
-                        pkg_name, packages_info, requirements, all_dependencies
+                for pkg_id in list(packages_info.keys()):
+                    packages_info[pkg_id] = self._get_package_info(
+                        pkg_id, packages_info, requirements, all_dependencies
                     )
 
                 self._packages_cache = dict(sorted(packages_info.items()))
@@ -776,37 +822,46 @@ class PackageAnalyzer:
             PackageStatus.VERSION_MISMATCH: [],
         }
 
-        # 收集所有依賴關係（包含子依賴和孫依賴）
-        all_dependencies = set()
+        # 收集所有依賴關係（包含子依賴和孫依賴），使用標準化的 ID
+        all_dependencies_ids = set()
         for pkg_info in installed_packages.values():
             deps = pkg_info.get("dependencies", [])
-            all_dependencies.update(deps)
+            # 標準化所有依賴的 ID
+            deps_ids = {self._normalize_package_name(dep) for dep in deps}
+            all_dependencies_ids.update(deps_ids)
             # 遞迴收集子依賴的依賴
             for dep in deps:
-                if dep in installed_packages:
-                    all_dependencies.update(
-                        installed_packages[dep].get("dependencies", [])
+                dep_id = self._normalize_package_name(dep)
+                if dep_id in installed_packages:
+                    subdeps = installed_packages[dep_id].get("dependencies", [])
+                    all_dependencies_ids.update(
+                        self._normalize_package_name(subdep)
+                        for subdep in subdeps
                     )
 
-        # 先檢查冗餘套件
-        for pkg_name, dep_info in requirements.items():
-            if pkg_name in all_dependencies:
-                # 只要套件是其他套件的依賴，就標記為冗餘
-                inconsistencies[PackageStatus.REDUNDANT].append(pkg_name)
+        # 先檢查冗餘套件，使用標準化的 ID 進行比較
+        for pkg_id, dep_info in requirements.items():
+            normalized_id = self._normalize_package_name(dep_info.name)
+            if normalized_id in all_dependencies_ids:
+                # 使用原始名稱添加到結果中
+                inconsistencies[PackageStatus.REDUNDANT].append(dep_info.name)
 
         # 檢查 requirements 中的套件
-        for pkg_name, dep_info in requirements.items():
+        for pkg_id, dep_info in requirements.items():
+            normalized_id = self._normalize_package_name(dep_info.name)
             # 如果是冗餘套件，跳過其他檢查
-            if pkg_name in inconsistencies[PackageStatus.REDUNDANT]:
+            if dep_info.name in inconsistencies[PackageStatus.REDUNDANT]:
                 continue
 
-            # 檢查是否已安裝
-            if pkg_name not in installed_packages:
-                inconsistencies[PackageStatus.NOT_INSTALLED].append(pkg_name)
+            # 檢查是否已安裝，使用標準化的 ID 進行比較
+            if normalized_id not in installed_packages:
+                inconsistencies[PackageStatus.NOT_INSTALLED].append(
+                    dep_info.name
+                )
                 continue
 
             # 檢查版本是否匹配
-            installed_version = installed_packages[pkg_name][
+            installed_version = installed_packages[normalized_id][
                 "installed_version"
             ]
 
@@ -832,28 +887,30 @@ class PackageAnalyzer:
             ):
                 # 將版本規範資訊一併儲存，以便後續顯示
                 inconsistencies[PackageStatus.VERSION_MISMATCH].append(
-                    (pkg_name, version_for_check)
+                    (dep_info.name, version_for_check)
                 )
 
         # 檢查已安裝但不在 requirements 中的套件
-        for pkg_name in installed_packages:
-            if pkg_name not in requirements and not any(
-                pkg_name in deps
-                for deps in [
-                    pkg["dependencies"] for pkg in installed_packages.values()
-                ]
+        for pkg_id, pkg_info in installed_packages.items():
+            normalized_id = self._normalize_package_name(pkg_id)
+            # 檢查是否在 requirements 中（使用標準化的 ID）
+            if not any(
+                self._normalize_package_name(req.name) == normalized_id
+                for req in requirements.values()
             ):
-                inconsistencies[PackageStatus.NOT_IN_REQUIREMENTS].append(
-                    pkg_name
-                )
+                # 檢查是否是其他套件的依賴
+                if normalized_id not in all_dependencies_ids:
+                    inconsistencies[PackageStatus.NOT_IN_REQUIREMENTS].append(
+                        pkg_info.get("name", pkg_id)
+                    )
 
         # 對每個列表進行排序以保持穩定的輸出順序
         for status in inconsistencies:
             if status == PackageStatus.VERSION_MISMATCH:
                 inconsistencies[status].sort(
-                    key=lambda x: x[0]
-                )  # 根據套件名稱排序
+                    key=lambda x: x[0].lower()
+                )  # 使用小寫進行排序
             else:
-                inconsistencies[status].sort()
+                inconsistencies[status].sort(key=str.lower)  # 使用小寫進行排序
 
         return inconsistencies
