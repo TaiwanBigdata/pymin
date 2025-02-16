@@ -12,6 +12,7 @@ from packaging.version import parse, Version
 from rich.prompt import Confirm
 from rich.text import Text
 from ..ui.console import print_error, print_warning, print_success, console
+import time
 
 
 def extract_error_from_html(html_content: str) -> str:
@@ -46,37 +47,11 @@ def update_version_in_pyproject(version: str) -> None:
 
 
 def find_next_test_version(project_name: str, base_version: str) -> str:
-    """Find next available test version number"""
-    # Try to get project info from Test PyPI
-    response = requests.get(f"https://test.pypi.org/pypi/{project_name}/json")
-
-    if response.status_code == 404:
-        # Project doesn't exist on Test PyPI
-        return f"{base_version}.dev0"
-
-    if response.status_code != 200:
-        # Can't get version info, use dev0 as fallback
-        print_warning("Unable to fetch version info from Test PyPI")
-        print_warning("Using dev0 as fallback")
-        return f"{base_version}.dev0"
-
-    # Get all versions
-    versions = response.json()["releases"].keys()
-    dev_versions = [v for v in versions if v.startswith(f"{base_version}.dev")]
-
-    if not dev_versions:
-        return f"{base_version}.dev0"
-
-    # Find highest dev number
-    highest = -1
-    for version in dev_versions:
-        try:
-            dev_num = int(version.split(".dev")[1])
-            highest = max(highest, dev_num)
-        except (ValueError, IndexError):
-            continue
-
-    return f"{base_version}.dev{highest + 1}"
+    """Generate test version using timestamp"""
+    timestamp = int(time.time())
+    next_version = f"{base_version}.dev{timestamp}"
+    print_warning(f"Using timestamp-based version: {next_version}")
+    return next_version
 
 
 class PackageReleaser:
@@ -539,8 +514,15 @@ password = {token}
             # For Test PyPI, use temporary test version
             if test:
                 try:
+                    # 如果當前版本已經是 dev 版本，先恢復到基礎版本
+                    base_version = original_version
+                    if ".dev" in original_version:
+                        base_version = original_version.split(".dev")[0]
+                        update_version_in_pyproject(base_version)
+
+                    # 尋找下一個可用的測試版本
                     test_version = find_next_test_version(
-                        project_name, original_version
+                        project_name, base_version
                     )
                     console.print(
                         f"\n[blue]Using temporary version [cyan]{test_version}[/cyan] for Test PyPI...[/blue]"
@@ -618,3 +600,4 @@ password = {token}
         finally:
             # Always clean up temporary packages
             self._cleanup_temp_packages()
+            console.print()
