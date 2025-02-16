@@ -27,17 +27,15 @@ class PackageStatus(str, Enum):
     REDUNDANT = (
         "redundant"  # Package is in requirements.txt but is also a dependency
     )
-    NORMAL = "normal"  # Package is properly installed and listed
+    DUPLICATE = "duplicate"  # Package is defined multiple times
+    VERSION_MISMATCH = (
+        "version_mismatch"  # Installed version doesn't match requirements
+    )
     NOT_INSTALLED = (
         "not_installed"  # Package is in requirements.txt but not installed
     )
     NOT_IN_REQUIREMENTS = "not_in_requirements"  # Package is installed but not in requirements.txt
-    VERSION_MISMATCH = (
-        "version_mismatch"  # Installed version doesn't match requirements
-    )
-    DUPLICATE = (
-        "duplicate"  # Package is defined multiple times in the same file
-    )
+    NORMAL = "normal"  # Package is properly installed and listed
 
     def __str__(self) -> str:
         return self.value
@@ -47,13 +45,34 @@ class PackageStatus(str, Enum):
         """Get the description for a status value"""
         descriptions = {
             cls.REDUNDANT: "Package is listed in requirements.txt but is also a dependency of another package",
-            cls.NORMAL: "Package is properly installed and listed in requirements.txt",
+            cls.DUPLICATE: "Package is defined multiple times in the same file",
+            cls.VERSION_MISMATCH: "Installed package version does not match requirements",
             cls.NOT_INSTALLED: "Package is listed in requirements.txt but not installed",
             cls.NOT_IN_REQUIREMENTS: "Package is installed but not listed in requirements.txt",
-            cls.VERSION_MISMATCH: "Installed package version does not match requirements",
-            cls.DUPLICATE: "Package is defined multiple times in the same file",
+            cls.NORMAL: "Package is properly installed and listed in requirements.txt",
         }
         return descriptions.get(status, "Unknown status")
+
+    @staticmethod
+    def get_priority(status: str) -> int:
+        """Get priority value for status ordering (lower number = higher priority)"""
+        priorities = {
+            "redundant": 1,  # 冗餘（最嚴重，影響依賴結構）
+            "duplicate": 2,  # 重複定義（次嚴重，可能導致版本衝突）
+            "version_mismatch": 3,  # 版本不匹配（重要但不如結構性問題嚴重）
+            "not_installed": 4,  # 未安裝（可以輕易修復）
+            "not_in_requirements": 5,  # 未在需求文件中（次要問題）
+            "normal": 6,  # 正常
+        }
+        return priorities.get(str(status).lower(), 99)  # 未知狀態給予最低優先級
+
+    @classmethod
+    def get_fix_order(cls) -> List["PackageStatus"]:
+        """Get list of statuses in fix priority order (excluding NORMAL)"""
+        # 獲取所有非 NORMAL 的狀態
+        statuses = [status for status in cls if status != cls.NORMAL]
+        # 根據優先級排序
+        return sorted(statuses, key=lambda s: cls.get_priority(s))
 
 
 class DependencySource(str, Enum):
@@ -612,23 +631,34 @@ class PackageAnalyzer:
                         pass
 
         # Determine package status
+        statuses = set()
+
+        # Check for duplicate definitions
         if duplicates:
-            status = PackageStatus.DUPLICATE
-        elif not is_installed and pkg_id in requirements:
-            status = PackageStatus.NOT_INSTALLED
-        elif pkg_id in all_dependencies and pkg_id in requirements:
-            status = PackageStatus.REDUNDANT
-        elif is_installed and pkg_id not in requirements:
-            status = PackageStatus.NOT_IN_REQUIREMENTS
-        elif is_installed and version_for_check:
+            statuses.add(PackageStatus.DUPLICATE)
+
+        # Check for missing packages
+        if not is_installed and pkg_id in requirements:
+            statuses.add(PackageStatus.NOT_INSTALLED)
+
+        # Check for redundant packages
+        if pkg_id in all_dependencies and pkg_id in requirements:
+            statuses.add(PackageStatus.REDUNDANT)
+
+        # Check for unlisted packages
+        if is_installed and pkg_id not in requirements:
+            statuses.add(PackageStatus.NOT_IN_REQUIREMENTS)
+
+        # Check for version mismatches
+        if is_installed and version_for_check:
             if not self._check_version_compatibility(
                 installed_version, version_for_check
             ):
-                status = PackageStatus.VERSION_MISMATCH
-            else:
-                status = PackageStatus.NORMAL
-        else:
-            status = PackageStatus.NORMAL
+                statuses.add(PackageStatus.VERSION_MISMATCH)
+
+        # If no issues found, mark as normal
+        if not statuses:
+            statuses.add(PackageStatus.NORMAL)
 
         return {
             "name": display_name,
@@ -637,9 +667,12 @@ class PackageAnalyzer:
             "required_version": required_version,
             "extras": extras,
             "dependencies": sorted(pkg_info.get("dependencies", [])),
-            "status": status.value,
+            "statuses": statuses,  # Return set of statuses
+            "status": min(
+                statuses, key=PackageStatus.get_priority
+            ).value,  # For backwards compatibility
             "redundant": pkg_id in all_dependencies and pkg_id in requirements,
-            "duplicates": duplicates,  # 添加重複版本信息
+            "duplicates": duplicates,  # Keep duplicate version info
         }
 
     def _get_package_dependencies(

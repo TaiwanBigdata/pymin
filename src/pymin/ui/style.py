@@ -4,9 +4,10 @@ from rich.style import Style
 from rich.theme import Theme
 from enum import Enum
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Union, Set
 from pathlib import Path
 from rich.text import Text
+from ..core.package_analyzer import PackageStatus
 
 
 class Colors(str, Enum):
@@ -137,16 +138,40 @@ THEME = Theme(
 )
 
 
-def get_status_symbol(status: str) -> Text:
+def get_status_symbol(status: Union[str, Set[str]]) -> Text:
     """Get status symbol with consistent styling
 
     Args:
-        status: Package status string
+        status: Package status string or set of status strings
 
     Returns:
         Rich Text object with appropriate symbol and style
     """
-    status = status.lower()
+    if isinstance(status, set):
+        # Handle multiple statuses
+        if not status:
+            return Text(SymbolType.SUCCESS, style=StyleType.SUCCESS)
+
+        # Sort statuses by priority
+        sorted_statuses = sorted(
+            status, key=lambda s: PackageStatus.get_priority(s)
+        )
+
+        # Create combined status text
+        result = Text()
+        for i, s in enumerate(sorted_statuses):
+            if i > 0:
+                result.append(" ")  # Add space between symbols
+            result.append(get_single_status_symbol(s))
+        return result
+
+    # Handle single status (backwards compatibility)
+    return get_single_status_symbol(status)
+
+
+def get_single_status_symbol(status: str) -> Text:
+    """Get symbol for a single status with consistent styling"""
+    status = str(status).lower()
     if status == "normal":
         return Text(SymbolType.SUCCESS, style=StyleType.SUCCESS)
     elif status == "version_mismatch":

@@ -69,7 +69,7 @@ def list(show_all: bool, show_tree: bool):
             if should_show_fix_tip(packages):
                 console.print()
                 print_tips(
-                    "Run [cyan]pmm fix[/cyan] to resolve package inconsistencies"
+                    "Run [cyan]pm fix[/cyan] to resolve package inconsistencies"
                 )
 
         else:
@@ -145,7 +145,7 @@ def list(show_all: bool, show_tree: bool):
             if should_show_fix_tip(packages):
                 console.print()
                 print_tips(
-                    "Run [cyan]pmm fix[/cyan] to resolve package inconsistencies"
+                    "Run [cyan]pm fix[/cyan] to resolve package inconsistencies"
                 )
 
     except Exception as e:

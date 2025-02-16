@@ -171,8 +171,13 @@ def create_package_table(
         styled_row.append(installed_text)
 
         # Handle status
-        status = package_data.get("status", "")
-        styled_row.append(get_status_symbol(status))
+        if "statuses" in package_data:
+            # Use new multi-status format
+            styled_row.append(get_status_symbol(package_data["statuses"]))
+        else:
+            # Backwards compatibility for single status
+            status = package_data.get("status", "")
+            styled_row.append(get_status_symbol(status))
 
         # Add the row to the table with appropriate styling
         if package_data.get("is_dependency"):
@@ -375,22 +380,20 @@ def create_package_summary(
     # Define status display names and styles
     status_names = {
         "normal": "Normal",
-        "outdated": "Outdated",
-        "missing": "Missing",
         "redundant": "Redundant",
-        "version_mismatch": "Version Mismatch",
-        "not_in_requirements": "Not in Requirements",
         "duplicate": "Duplicate",
+        "version_mismatch": "Version Mismatch",
+        "not_installed": "Missing",
+        "not_in_requirements": "Not in Requirements",
     }
 
     status_styles = {
         "normal": "green",
-        "outdated": "red",
-        "missing": "red",
         "redundant": "yellow",
-        "version_mismatch": "red",
-        "not_in_requirements": "yellow",
         "duplicate": "yellow",
+        "version_mismatch": "red",
+        "not_installed": "red",
+        "not_in_requirements": "yellow",
     }
 
     content = Text()
@@ -398,12 +401,11 @@ def create_package_summary(
     # Count all possible package statuses
     status_counts = {
         "normal": 0,  # ✓ 正常
-        "outdated": 0,  # ≠ 版本過期
-        "missing": 0,  # ✗ 在 requirements.txt 但未安裝
         "redundant": 0,  # ⚠ 在 requirements.txt 且是依賴
-        "version_mismatch": 0,  # ≠ 版本不符
-        "not_in_requirements": 0,  # ! 已安裝但不在 requirements.txt
         "duplicate": 0,
+        "version_mismatch": 0,  # ≠ 版本不符
+        "not_installed": 0,  # ✗ 在 requirements.txt 但未安裝
+        "not_in_requirements": 0,  # ! 已安裝但不在 requirements.txt
     }
 
     # Convert list format to dictionary if needed
@@ -422,27 +424,32 @@ def create_package_summary(
 
     for pkg_name, pkg_data in packages.items():
         is_dependency = pkg_data.get("is_dependency", False)
-        is_redundant = pkg_data.get("status") == "redundant"
-        is_duplicate = pkg_data.get("status") == "duplicate"
 
         if not is_dependency:
             top_level_packages.append(pkg_data)
-            status = pkg_data.get("status", "")
-            # Handle missing packages (required but not installed)
-            if pkg_data.get("required_version") and not pkg_data.get(
-                "installed_version"
-            ):
-                status = "missing"
-            # Handle duplicate packages
-            elif is_duplicate:
-                status = "duplicate"
-            # Handle other statuses
-            if status in status_counts:
-                status_counts[status] += 1
-            elif pkg_data.get("installed_version") and not pkg_data.get(
-                "required_version"
-            ):
-                status_counts["not_in_requirements"] += 1
+
+            # Handle multiple statuses
+            if "statuses" in pkg_data:
+                pkg_statuses = pkg_data["statuses"]
+            else:
+                # Backwards compatibility
+                status = pkg_data.get("status", "")
+                pkg_statuses = {status} if status else set()
+
+                # Handle special cases for backwards compatibility
+                if pkg_data.get("required_version") and not pkg_data.get(
+                    "installed_version"
+                ):
+                    pkg_statuses.add("not_installed")
+                elif pkg_data.get("installed_version") and not pkg_data.get(
+                    "required_version"
+                ):
+                    pkg_statuses.add("not_in_requirements")
+
+            # Count each status
+            for status in pkg_statuses:
+                if status in status_counts:
+                    status_counts[status] += 1
 
         # Collect dependencies only if we're showing the tree
         if mode == "dependency_tree" and "dependencies" in pkg_data:
@@ -494,14 +501,14 @@ def create_package_summary(
         content.append(str(len(top_level_packages)), style="cyan")
         content.append("\n")
 
-    # Only show non-zero status counts in a consistent order
+    # Only show non-zero status counts in priority order
     status_order = [
-        "normal",
-        "missing",
-        "redundant",
-        "version_mismatch",
-        "not_in_requirements",
-        "duplicate",
+        "redundant",  # 優先級 1：冗餘（影響依賴結構）
+        "duplicate",  # 優先級 2：重複定義
+        "version_mismatch",  # 優先級 3：版本不匹配
+        "not_installed",  # 優先級 4：未安裝
+        "not_in_requirements",  # 優先級 5：未在需求文件中
+        "normal",  # 優先級 6：正常
     ]
     for status in status_order:
         if status_counts[status] > 0:

@@ -10,6 +10,7 @@ from ...core.package_analyzer import (
     DependencyInfo,
     PackageStatus,
 )
+from ...core.version_utils import normalize_package_name
 from ...ui.console import (
     print_error,
     print_warning,
@@ -72,109 +73,81 @@ def fix(yes: bool = False):
             print_success("No package inconsistencies found!")
             return
 
-        # Convert inconsistencies to the format expected by the fix logic
-        packages_to_update = []
-        packages_to_install = []
-        redundant_packages = []
-        not_in_requirements = []
-        duplicate_packages = []  # 新增重複套件列表
+        # Get fix order from PackageStatus
+        fix_order = PackageStatus.get_fix_order()
 
-        # Process duplicate packages
-        for pkg_name, versions in inconsistencies[PackageStatus.DUPLICATE]:
-            last_version = versions[-1]  # 保留最後一個版本
-            duplicate_packages.append((pkg_name, last_version))
-
-        # Process version mismatches
-        for pkg_name, version_spec in inconsistencies[
-            PackageStatus.VERSION_MISMATCH
-        ]:
-            # 如果套件是冗餘的，跳過版本更新
-            if pkg_name in inconsistencies[PackageStatus.REDUNDANT]:
-                continue
-
-            installed_version = installed_packages[pkg_name][
-                "installed_version"
-            ]
-            packages_to_update.append(
-                (pkg_name, installed_version, version_spec)
-            )
-
-        # Process missing packages
-        # 同樣跳過冗餘套件
-        packages_to_install.extend(
-            [
-                pkg_name
-                for pkg_name in inconsistencies[PackageStatus.NOT_INSTALLED]
-                if pkg_name not in inconsistencies[PackageStatus.REDUNDANT]
-            ]
-        )
-
-        # Process redundant packages
-        redundant_packages.extend(inconsistencies[PackageStatus.REDUNDANT])
-
-        # Process not in requirements
-        for pkg_name in inconsistencies[PackageStatus.NOT_IN_REQUIREMENTS]:
-            version = installed_packages[pkg_name]["installed_version"]
-            # 根據使用的文件和存在狀況決定顯示訊息
-            if use_pyproject:
-                missing_from = "pyproject.toml"
-            else:
-                missing_from = "requirements.txt"
-            not_in_requirements.append((pkg_name, version, missing_from))
-
-        # Display issues only if there are any to show
-        if (
-            packages_to_update
-            or packages_to_install
-            or redundant_packages
-            or not_in_requirements
-            or inconsistencies[PackageStatus.DUPLICATE]
-        ):
+        # Display issues in priority order
+        if any(inconsistencies.values()):
             console.print("\n[cyan]Package Issues Found:[/cyan]")
 
-            if inconsistencies[PackageStatus.DUPLICATE]:
-                console.print("\n[yellow]Duplicate Packages:[/yellow]")
-                for name, versions in inconsistencies[PackageStatus.DUPLICATE]:
-                    last_version = versions[-1]  # 最後一個版本會被保留
-                    console.print(
-                        f"  • [cyan]{name}[/cyan] [dim](versions: {', '.join(versions)}, keep {last_version})[/dim]"
-                    )
-
-            if packages_to_update:
-                console.print("\n[yellow]Version Mismatches:[/yellow]")
-                for name, current, required in packages_to_update:
-                    console.print(
-                        f"  • [cyan]{name}[/cyan]: [yellow]{current}[/yellow] → [green]{required}[/green]"
-                    )
-
-            if packages_to_install:
-                console.print("\n[yellow]Missing Packages:[/yellow]")
-                for name in packages_to_install:
-                    version = requirements.get(name, "")
-                    # 處理 DependencyInfo 對象的版本顯示
-                    if hasattr(version, "version_spec"):
-                        version_display = version.version_spec
-                    elif isinstance(version, Text):
-                        version_display = str(version)
-                    else:
-                        version_display = version
-                    console.print(
-                        f"  • [cyan]{name}[/cyan] ({version_display})"
-                    )
-
-            if not_in_requirements:
-                console.print("\n[yellow]Not in Requirements:[/yellow]")
-                for name, version, missing_from in not_in_requirements:
-                    console.print(
-                        f"  • [cyan]{name}[/cyan] ({version}) [dim](missing from {missing_from})[/dim]"
-                    )
-
-            if redundant_packages:
-                console.print("\n[yellow]Redundant Packages:[/yellow]")
-                for name in redundant_packages:
-                    console.print(
-                        f"  • [cyan]{name}[/cyan] (listed in requirements but also a dependency)"
-                    )
+            for status in fix_order:
+                if (
+                    status == PackageStatus.DUPLICATE
+                    and inconsistencies[status]
+                ):
+                    console.print("\n[yellow]Duplicate Packages:[/yellow]")
+                    for name, versions in inconsistencies[status]:
+                        last_version = versions[-1]  # 最後一個版本會被保留
+                        console.print(
+                            f"  • [cyan]{name}[/cyan] [dim](versions: {', '.join(versions)}, keep {last_version})[/dim]"
+                        )
+                elif (
+                    status == PackageStatus.VERSION_MISMATCH
+                    and inconsistencies[status]
+                ):
+                    console.print("\n[yellow]Version Mismatches:[/yellow]")
+                    for name, required in inconsistencies[status]:
+                        current = installed_packages[
+                            normalize_package_name(name)
+                        ]["installed_version"]
+                        console.print(
+                            f"  • [cyan]{name}[/cyan]: [yellow]{current}[/yellow] → [green]{required}[/green]"
+                        )
+                elif (
+                    status == PackageStatus.NOT_INSTALLED
+                    and inconsistencies[status]
+                ):
+                    console.print("\n[yellow]Missing Packages:[/yellow]")
+                    for name in inconsistencies[status]:
+                        version = requirements.get(name, "")
+                        version_display = (
+                            version.version_spec
+                            if hasattr(version, "version_spec")
+                            else (
+                                str(version)
+                                if isinstance(version, Text)
+                                else version
+                            )
+                        )
+                        console.print(
+                            f"  • [cyan]{name}[/cyan] ({version_display})"
+                        )
+                elif (
+                    status == PackageStatus.NOT_IN_REQUIREMENTS
+                    and inconsistencies[status]
+                ):
+                    console.print("\n[yellow]Not in Requirements:[/yellow]")
+                    for name in inconsistencies[status]:
+                        version = installed_packages[
+                            normalize_package_name(name)
+                        ]["installed_version"]
+                        missing_from = (
+                            "pyproject.toml"
+                            if use_pyproject
+                            else "requirements.txt"
+                        )
+                        console.print(
+                            f"  • [cyan]{name}[/cyan] ({version}) [dim](missing from {missing_from})[/dim]"
+                        )
+                elif (
+                    status == PackageStatus.REDUNDANT
+                    and inconsistencies[status]
+                ):
+                    console.print("\n[yellow]Redundant Packages:[/yellow]")
+                    for name in inconsistencies[status]:
+                        console.print(
+                            f"  • [cyan]{name}[/cyan] (listed in requirements but also a dependency)"
+                        )
 
             # Confirm fixes
             console.print()
@@ -186,9 +159,11 @@ def fix(yes: bool = False):
         error_count = 0
 
         # Fix version mismatches
-        if packages_to_update:
+        if inconsistencies[PackageStatus.VERSION_MISMATCH]:
             with progress_status("Updating package versions..."):
-                for name, _, required in packages_to_update:
+                for name, required in inconsistencies[
+                    PackageStatus.VERSION_MISMATCH
+                ]:
                     try:
                         # 清理版本字符串，移除前導的版本約束符號
                         version_clean = str(required).lstrip("=")
@@ -230,9 +205,9 @@ def fix(yes: bool = False):
                         )
 
         # Install missing packages
-        if packages_to_install:
+        if inconsistencies[PackageStatus.NOT_INSTALLED]:
             with progress_status("Installing missing packages..."):
-                for name in packages_to_install:
+                for name in inconsistencies[PackageStatus.NOT_INSTALLED]:
                     try:
                         version = requirements.get(name, "")
                         # 處理 DependencyInfo 對象的版本清理
@@ -275,7 +250,7 @@ def fix(yes: bool = False):
                         )
 
         # Handle redundant packages
-        if redundant_packages:
+        if inconsistencies[PackageStatus.REDUNDANT]:
             with progress_status("Optimizing package dependencies..."):
                 # 如果使用 pyproject.toml，先初始化 PyProjectManager
                 proj_manager = None
@@ -286,7 +261,7 @@ def fix(yes: bool = False):
                         pkg_analyzer.project_path / "pyproject.toml"
                     )
 
-                for name in redundant_packages:
+                for name in inconsistencies[PackageStatus.REDUNDANT]:
                     try:
                         # 獲取完整的套件資訊（包含 extras）
                         pkg_info = requirements.get(name)
@@ -325,11 +300,11 @@ def fix(yes: bool = False):
                         )
 
         # Handle not in requirements packages
-        if not_in_requirements:
+        if inconsistencies[PackageStatus.NOT_IN_REQUIREMENTS]:
             with progress_status(
                 f"Adding packages to {'pyproject.toml' if use_pyproject else 'requirements.txt'}..."
             ):
-                for name, version, _ in not_in_requirements:
+                for name in inconsistencies[PackageStatus.NOT_IN_REQUIREMENTS]:
                     try:
                         if use_pyproject:
                             # Initialize PyProjectManager
@@ -362,9 +337,9 @@ def fix(yes: bool = False):
                         )
 
         # Handle duplicate packages
-        if duplicate_packages:
+        if inconsistencies[PackageStatus.DUPLICATE]:
             with progress_status("Fixing duplicate package definitions..."):
-                for name, version in duplicate_packages:
+                for name, versions in inconsistencies[PackageStatus.DUPLICATE]:
                     try:
                         if use_pyproject:
                             # Initialize PyProjectManager
@@ -380,7 +355,7 @@ def fix(yes: bool = False):
                             proj_manager.remove_dependency(name)
 
                             # 清理版本字符串，保留版本約束符號
-                            version_clean = version.strip()
+                            version_clean = versions[-1].strip()
                             if not any(
                                 version_clean.startswith(op)
                                 for op in [
@@ -432,7 +407,7 @@ def fix(yes: bool = False):
                                             to_remove.append(line.strip())
 
                                 # 清理版本字符串，移除前導的版本約束符號
-                                version_clean = version.lstrip("=")
+                                version_clean = versions[-1].lstrip("=")
                                 if not any(
                                     version_clean.startswith(op)
                                     for op in [
