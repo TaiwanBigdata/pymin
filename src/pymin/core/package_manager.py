@@ -668,8 +668,33 @@ class PackageManager:
             requirements = new_requirements
 
         # Write updated requirements
+        # Sort all non-comment lines while preserving comments
+        sorted_requirements = []
+        package_lines = []
+        comment_lines = []
+
+        for line in requirements:
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("#"):
+                comment_lines.append(line + "\n")
+            else:
+                package_lines.append(line)
+
+        # Sort package lines
+        package_lines.sort(key=str.lower)
+
+        # Combine comments and sorted packages
+        sorted_requirements.extend(comment_lines)
+        if (
+            comment_lines and package_lines
+        ):  # Add a blank line between comments and packages
+            sorted_requirements.append("\n")
+        sorted_requirements.extend(f"{pkg}\n" for pkg in package_lines)
+
         with open(self.requirements_path, "w") as f:
-            f.writelines(requirements)
+            f.writelines(sorted_requirements)
 
     def _get_pip_path(self) -> Path:
         """Get path to pip executable"""

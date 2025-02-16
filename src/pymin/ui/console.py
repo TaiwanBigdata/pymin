@@ -380,6 +380,7 @@ def create_package_summary(
         "redundant": "Redundant",
         "version_mismatch": "Version Mismatch",
         "not_in_requirements": "Not in Requirements",
+        "duplicate": "Duplicate",
     }
 
     status_styles = {
@@ -389,6 +390,7 @@ def create_package_summary(
         "redundant": "yellow",
         "version_mismatch": "red",
         "not_in_requirements": "yellow",
+        "duplicate": "yellow",
     }
 
     content = Text()
@@ -401,6 +403,7 @@ def create_package_summary(
         "redundant": 0,  # ⚠ 在 requirements.txt 且是依賴
         "version_mismatch": 0,  # ≠ 版本不符
         "not_in_requirements": 0,  # ! 已安裝但不在 requirements.txt
+        "duplicate": 0,
     }
 
     # Convert list format to dictionary if needed
@@ -420,6 +423,7 @@ def create_package_summary(
     for pkg_name, pkg_data in packages.items():
         is_dependency = pkg_data.get("is_dependency", False)
         is_redundant = pkg_data.get("status") == "redundant"
+        is_duplicate = pkg_data.get("status") == "duplicate"
 
         if not is_dependency:
             top_level_packages.append(pkg_data)
@@ -429,6 +433,9 @@ def create_package_summary(
                 "installed_version"
             ):
                 status = "missing"
+            # Handle duplicate packages
+            elif is_duplicate:
+                status = "duplicate"
             # Handle other statuses
             if status in status_counts:
                 status_counts[status] += 1
@@ -494,6 +501,7 @@ def create_package_summary(
         "redundant",
         "version_mismatch",
         "not_in_requirements",
+        "duplicate",
     ]
     for status in status_order:
         if status_counts[status] > 0:

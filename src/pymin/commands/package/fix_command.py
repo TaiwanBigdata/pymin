@@ -77,6 +77,12 @@ def fix(yes: bool = False):
         packages_to_install = []
         redundant_packages = []
         not_in_requirements = []
+        duplicate_packages = []  # 新增重複套件列表
+
+        # Process duplicate packages
+        for pkg_name, versions in inconsistencies[PackageStatus.DUPLICATE]:
+            last_version = versions[-1]  # 保留最後一個版本
+            duplicate_packages.append((pkg_name, last_version))
 
         # Process version mismatches
         for pkg_name, version_spec in inconsistencies[
@@ -116,47 +122,64 @@ def fix(yes: bool = False):
                 missing_from = "requirements.txt"
             not_in_requirements.append((pkg_name, version, missing_from))
 
-        # Display issues
-        console.print("\n[cyan]Package Issues Found:[/cyan]")
+        # Display issues only if there are any to show
+        if (
+            packages_to_update
+            or packages_to_install
+            or redundant_packages
+            or not_in_requirements
+            or inconsistencies[PackageStatus.DUPLICATE]
+        ):
+            console.print("\n[cyan]Package Issues Found:[/cyan]")
 
-        if packages_to_update:
-            console.print("\n[yellow]Version Mismatches:[/yellow]")
-            for name, current, required in packages_to_update:
-                console.print(
-                    f"  • [cyan]{name}[/cyan]: [yellow]{current}[/yellow] → [green]{required}[/green]"
-                )
+            if inconsistencies[PackageStatus.DUPLICATE]:
+                console.print("\n[yellow]Duplicate Packages:[/yellow]")
+                for name, versions in inconsistencies[PackageStatus.DUPLICATE]:
+                    last_version = versions[-1]  # 最後一個版本會被保留
+                    console.print(
+                        f"  • [cyan]{name}[/cyan] [dim](versions: {', '.join(versions)}, keep {last_version})[/dim]"
+                    )
 
-        if packages_to_install:
-            console.print("\n[yellow]Missing Packages:[/yellow]")
-            for name in packages_to_install:
-                version = requirements.get(name, "")
-                # 處理 DependencyInfo 對象的版本顯示
-                if hasattr(version, "version_spec"):
-                    version_display = version.version_spec
-                elif isinstance(version, Text):
-                    version_display = str(version)
-                else:
-                    version_display = version
-                console.print(f"  • [cyan]{name}[/cyan] ({version_display})")
+            if packages_to_update:
+                console.print("\n[yellow]Version Mismatches:[/yellow]")
+                for name, current, required in packages_to_update:
+                    console.print(
+                        f"  • [cyan]{name}[/cyan]: [yellow]{current}[/yellow] → [green]{required}[/green]"
+                    )
 
-        if not_in_requirements:
-            console.print("\n[yellow]Not in Requirements:[/yellow]")
-            for name, version, missing_from in not_in_requirements:
-                console.print(
-                    f"  • [cyan]{name}[/cyan] ({version}) [dim](missing from {missing_from})[/dim]"
-                )
+            if packages_to_install:
+                console.print("\n[yellow]Missing Packages:[/yellow]")
+                for name in packages_to_install:
+                    version = requirements.get(name, "")
+                    # 處理 DependencyInfo 對象的版本顯示
+                    if hasattr(version, "version_spec"):
+                        version_display = version.version_spec
+                    elif isinstance(version, Text):
+                        version_display = str(version)
+                    else:
+                        version_display = version
+                    console.print(
+                        f"  • [cyan]{name}[/cyan] ({version_display})"
+                    )
 
-        if redundant_packages:
-            console.print("\n[yellow]Redundant Packages:[/yellow]")
-            for name in redundant_packages:
-                console.print(
-                    f"  • [cyan]{name}[/cyan] (listed in requirements but also a dependency)"
-                )
+            if not_in_requirements:
+                console.print("\n[yellow]Not in Requirements:[/yellow]")
+                for name, version, missing_from in not_in_requirements:
+                    console.print(
+                        f"  • [cyan]{name}[/cyan] ({version}) [dim](missing from {missing_from})[/dim]"
+                    )
 
-        # Confirm fixes
-        console.print()
-        if not yes and not Confirm.ask("Do you want to fix these issues?"):
-            return
+            if redundant_packages:
+                console.print("\n[yellow]Redundant Packages:[/yellow]")
+                for name in redundant_packages:
+                    console.print(
+                        f"  • [cyan]{name}[/cyan] (listed in requirements but also a dependency)"
+                    )
+
+            # Confirm fixes
+            console.print()
+            if not yes and not Confirm.ask("Do you want to fix these issues?"):
+                return
 
         # Apply fixes
         fixed_count = 0
@@ -336,6 +359,59 @@ def fix(yes: bool = False):
                         error_count += 1
                         print_error(
                             f"Failed to add [cyan]{name}[/cyan]: {str(e)}"
+                        )
+
+        # Handle duplicate packages
+        if duplicate_packages:
+            with progress_status("Fixing duplicate package definitions..."):
+                for name, version in duplicate_packages:
+                    try:
+                        # 使用 _update_requirements 方法來更新文件
+                        if Path("requirements.txt").exists():
+                            # 先讀取所有該套件的定義
+                            with open("requirements.txt", "r") as f:
+                                lines = f.readlines()
+
+                            # 收集所有該套件的版本定義
+                            to_remove = []
+                            for line in lines:
+                                if line.strip() and not line.strip().startswith(
+                                    "#"
+                                ):
+                                    pkg_name = line.split("==")[0].strip()
+                                    if pkg_name == name:
+                                        to_remove.append(line.strip())
+
+                            # 清理版本字符串，移除前導的版本約束符號
+                            version_clean = version.lstrip("=")
+                            if not any(
+                                version_clean.startswith(op)
+                                for op in [
+                                    ">=",
+                                    "<=",
+                                    "!=",
+                                    "~=",
+                                    ">",
+                                    "<",
+                                    "==",
+                                ]
+                            ):
+                                version_clean = version_clean.strip()
+
+                            # 使用 _update_requirements 更新文件
+                            manager.package_manager._update_requirements(
+                                removed=to_remove,
+                                added=[f"{name}=={version_clean}"],
+                            )
+
+                            fixed_count += 1
+                            print_success(
+                                f"Fixed duplicate package [cyan]{name}[/cyan], keeping version [green]{version_clean}[/green]"
+                            )
+                    except Exception as e:
+                        error_count += 1
+                        print_error(
+                            f"Failed to fix duplicate package [cyan]{name}[/cyan]: {str(e)}"
                         )
 
         # Show summary

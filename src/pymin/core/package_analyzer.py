@@ -35,6 +35,9 @@ class PackageStatus(str, Enum):
     VERSION_MISMATCH = (
         "version_mismatch"  # Installed version doesn't match requirements
     )
+    DUPLICATE = (
+        "duplicate"  # Package is defined multiple times in the same file
+    )
 
     def __str__(self) -> str:
         return self.value
@@ -48,6 +51,7 @@ class PackageStatus(str, Enum):
             cls.NOT_INSTALLED: "Package is listed in requirements.txt but not installed",
             cls.NOT_IN_REQUIREMENTS: "Package is installed but not listed in requirements.txt",
             cls.VERSION_MISMATCH: "Installed package version does not match requirements",
+            cls.DUPLICATE: "Package is defined multiple times in the same file",
         }
         return descriptions.get(status, "Unknown status")
 
@@ -85,24 +89,21 @@ class DependencyInfo:
         self.source = source
         self.versions: Dict[DependencySource, str] = {}
         self.extras: Optional[Set[str]] = None
-        self.version_history: Dict[str, str] = {
-            name: version_spec
-        }  # 追蹤不同名稱版本的歷史
-
-    def __eq__(self, other: "DependencyInfo") -> bool:
-        # 使用 ID 進行比較
-        if not isinstance(other, DependencyInfo):
-            return False
-        return self.id == other.id
-
-    def __hash__(self) -> int:
-        # 使用 ID 作為 hash key
-        return hash(self.id)
 
     def set_version(self, version: str, source: DependencySource):
         """Set version for specific source"""
         self.versions[source] = version
-        self.version_history[self.name] = version
+
+    @property
+    def version_spec(self) -> str:
+        if self.extras:
+            extras_str = f"[{','.join(sorted(self.extras))}]"
+            return f"{self.name}{extras_str}{self._version_spec}"
+        return self._version_spec
+
+    @version_spec.setter
+    def version_spec(self, value: str):
+        self._version_spec = value
 
     def get_version_info(self) -> Dict[str, Dict[str, str]]:
         """
@@ -200,18 +201,6 @@ class DependencyInfo:
                 return version[len(constraint) :].strip()
         return version
 
-    @property
-    def version_spec(self) -> str:
-        if self.extras:
-            extras_str = f"[{','.join(sorted(self.extras))}]"
-            return f"{self.name}{extras_str}{self._version_spec}"
-        return self._version_spec
-
-    @version_spec.setter
-    def version_spec(self, value: str):
-        self._version_spec = value
-        self.version_history[self.name] = value
-
 
 class PackageAnalyzer:
     """
@@ -286,13 +275,14 @@ class PackageAnalyzer:
     def _parse_requirements(self) -> Dict[str, DependencyInfo]:
         """
         Parse requirements.txt and pyproject.toml files and return package information
+        Always keeps the last occurrence of a package when case variants exist
 
         Returns:
             Dictionary mapping package IDs to DependencyInfo objects
         """
         if self._requirements_cache is None:
             self._requirements_cache = {}
-            sources: Dict[str, Set[DependencySource]] = {}  # 使用 ID 作為鍵
+            sources: Dict[str, Set[DependencySource]] = {}
 
             # Parse requirements.txt
             req_file = self.project_path / "requirements.txt"
@@ -315,29 +305,26 @@ class PackageAnalyzer:
                                     else ""
                                 )
 
+                                # 總是使用最新的名稱和版本
+                                dep_info = DependencyInfo(
+                                    name=name,
+                                    version_spec=spec,
+                                    source=DependencySource.REQUIREMENTS,
+                                )
+                                if extras:
+                                    dep_info.extras = extras
+
+                                # 更新或添加新的套件資訊
+                                self._requirements_cache[pkg_id] = dep_info
                                 if pkg_id not in sources:
                                     sources[pkg_id] = set()
                                 sources[pkg_id].add(
                                     DependencySource.REQUIREMENTS
                                 )
-
-                                if pkg_id not in self._requirements_cache:
-                                    dep_info = DependencyInfo(
-                                        name=name,
-                                        version_spec=spec,
-                                        source=DependencySource.REQUIREMENTS,
-                                    )
-                                    if extras:
-                                        dep_info.extras = extras
-                                    self._requirements_cache[pkg_id] = dep_info
-                                else:
-                                    # 更新現有條目的版本歷史
-                                    self._requirements_cache[
-                                        pkg_id
-                                    ].version_history[name] = spec
-                                self._requirements_cache[pkg_id].set_version(
+                                dep_info.set_version(
                                     spec, DependencySource.REQUIREMENTS
                                 )
+
                             except Exception as e:
                                 print(
                                     f"Warning: Error processing requirement {line}: {e}"
@@ -384,10 +371,10 @@ class PackageAnalyzer:
                                         dep_info.extras = extras
                                     self._requirements_cache[pkg_id] = dep_info
                                 else:
-                                    # 更新現有條目的版本歷史
+                                    # 更新現有條目的版本
                                     self._requirements_cache[
                                         pkg_id
-                                    ].version_history[name] = spec
+                                    ].version_spec = spec
                                 self._requirements_cache[pkg_id].set_version(
                                     spec, DependencySource.PYPROJECT
                                 )
@@ -559,8 +546,75 @@ class PackageAnalyzer:
 
         is_installed = pkg_id in installed_packages
 
+        # 檢查是否有重複定義
+        duplicates = []
+        if dep_info:
+            # 檢查 requirements.txt
+            req_file = self.project_path / "requirements.txt"
+            if req_file.exists():
+                versions = []
+                with open(req_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#"):
+                            try:
+                                name, _, constraint, version = (
+                                    parse_requirement_string(line)
+                                )
+                                if (
+                                    name
+                                    and normalize_package_name(name) == pkg_id
+                                ):
+                                    versions.append(
+                                        f"{constraint}{version}"
+                                        if constraint and version
+                                        else ""
+                                    )
+                            except Exception:
+                                continue
+                if len(versions) > 1:
+                    duplicates = versions
+
+            # 檢查 pyproject.toml
+            if not duplicates:  # 如果在 requirements.txt 中沒有重複
+                pyproject_file = self.project_path / "pyproject.toml"
+                if pyproject_file.exists():
+                    try:
+                        with open(pyproject_file, "r", encoding="utf-8") as f:
+                            pyproject_data = tomlkit.load(f)
+                            if (
+                                "project" in pyproject_data
+                                and "dependencies" in pyproject_data["project"]
+                            ):
+                                versions = []
+                                for dep in pyproject_data["project"][
+                                    "dependencies"
+                                ]:
+                                    try:
+                                        name, _, constraint, version = (
+                                            parse_requirement_string(dep)
+                                        )
+                                        if (
+                                            name
+                                            and normalize_package_name(name)
+                                            == pkg_id
+                                        ):
+                                            versions.append(
+                                                f"{constraint}{version}"
+                                                if constraint and version
+                                                else ""
+                                            )
+                                    except Exception:
+                                        continue
+                                if len(versions) > 1:
+                                    duplicates = versions
+                    except Exception:
+                        pass
+
         # Determine package status
-        if not is_installed and pkg_id in requirements:
+        if duplicates:
+            status = PackageStatus.DUPLICATE
+        elif not is_installed and pkg_id in requirements:
             status = PackageStatus.NOT_INSTALLED
         elif pkg_id in all_dependencies and pkg_id in requirements:
             status = PackageStatus.REDUNDANT
@@ -578,16 +632,14 @@ class PackageAnalyzer:
 
         return {
             "name": display_name,
-            "id": pkg_id,  # 添加 ID 到返回的信息中
+            "id": pkg_id,
             "installed_version": installed_version,
             "required_version": required_version,
             "extras": extras,
             "dependencies": sorted(pkg_info.get("dependencies", [])),
             "status": status.value,
             "redundant": pkg_id in all_dependencies and pkg_id in requirements,
-            "version_history": (
-                dep_info.version_history if dep_info else {}
-            ),  # 添加版本歷史
+            "duplicates": duplicates,  # 添加重複版本信息
         }
 
     def _get_package_dependencies(
@@ -820,7 +872,81 @@ class PackageAnalyzer:
             PackageStatus.NOT_INSTALLED: [],
             PackageStatus.NOT_IN_REQUIREMENTS: [],
             PackageStatus.VERSION_MISMATCH: [],
+            PackageStatus.DUPLICATE: [],  # 新增重複套件的列表
         }
+
+        # 追蹤套件在每個文件中的出現次數
+        req_duplicates: Dict[str, List[str]] = {}  # pkg_id -> [versions]
+        proj_duplicates: Dict[str, List[str]] = {}  # pkg_id -> [versions]
+
+        # Parse requirements.txt
+        req_file = self.project_path / "requirements.txt"
+        if req_file.exists():
+            with open(req_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        try:
+                            name, extras, constraint, version = (
+                                parse_requirement_string(line)
+                            )
+                            if name is None:
+                                continue
+                            pkg_id = normalize_package_name(name)
+                            if pkg_id not in req_duplicates:
+                                req_duplicates[pkg_id] = []
+                            req_duplicates[pkg_id].append(
+                                f"{constraint}{version}"
+                                if constraint and version
+                                else ""
+                            )
+                        except Exception:
+                            continue
+
+        # Parse pyproject.toml
+        pyproject_file = self.project_path / "pyproject.toml"
+        if pyproject_file.exists():
+            try:
+                with open(pyproject_file, "r", encoding="utf-8") as f:
+                    pyproject_data = tomlkit.load(f)
+                    if (
+                        "project" in pyproject_data
+                        and "dependencies" in pyproject_data["project"]
+                    ):
+                        for dep in pyproject_data["project"]["dependencies"]:
+                            try:
+                                name, extras, constraint, version = (
+                                    parse_requirement_string(dep)
+                                )
+                                if name is None:
+                                    continue
+                                pkg_id = normalize_package_name(name)
+                                if pkg_id not in proj_duplicates:
+                                    proj_duplicates[pkg_id] = []
+                                proj_duplicates[pkg_id].append(
+                                    f"{constraint}{version}"
+                                    if constraint and version
+                                    else ""
+                                )
+                            except Exception:
+                                continue
+            except Exception:
+                pass
+
+        # 檢查重複定義
+        if use_pyproject:
+            duplicates = proj_duplicates
+        else:
+            duplicates = req_duplicates
+
+        for pkg_id, versions in duplicates.items():
+            if len(versions) > 1:
+                # 找到對應的原始名稱
+                dep_info = requirements.get(pkg_id)
+                if dep_info:
+                    inconsistencies[PackageStatus.DUPLICATE].append(
+                        (dep_info.name, versions)
+                    )
 
         # 收集所有依賴關係（包含子依賴和孫依賴），使用標準化的 ID
         all_dependencies_ids = set()
@@ -906,11 +1032,14 @@ class PackageAnalyzer:
 
         # 對每個列表進行排序以保持穩定的輸出順序
         for status in inconsistencies:
-            if status == PackageStatus.VERSION_MISMATCH:
-                inconsistencies[status].sort(
-                    key=lambda x: x[0].lower()
-                )  # 使用小寫進行排序
+            if (
+                status == PackageStatus.VERSION_MISMATCH
+                or status == PackageStatus.DUPLICATE
+            ):
+                # 對於包含元組的列表，使用第一個元素（套件名稱）進行排序
+                inconsistencies[status].sort(key=lambda x: x[0].lower())
             else:
-                inconsistencies[status].sort(key=str.lower)  # 使用小寫進行排序
+                # 對於純字符串列表，直接使用小寫進行排序
+                inconsistencies[status].sort(key=str.lower)
 
         return inconsistencies

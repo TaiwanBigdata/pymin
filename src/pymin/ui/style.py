@@ -113,6 +113,7 @@ class SymbolType(str, Enum):
     NOT_INSTALLED = "✗"
     NOT_IN_REQUIREMENTS = "△"
     VERSION_MISMATCH = "≠"  # Installed version doesn't match required version
+    DUPLICATE = "⌥"  # Package is defined multiple times
     ARROW = "→"
     BULLET = "•"
     TREE_BRANCH = "├──"
@@ -156,6 +157,8 @@ def get_status_symbol(status: str) -> Text:
         return Text(SymbolType.WARNING, style=StyleType.WARNING)
     elif status == "redundant":
         return Text(SymbolType.WARNING, style=StyleType.WARNING)
+    elif status == "duplicate":
+        return Text(SymbolType.DUPLICATE, style=StyleType.WARNING)
     else:
         return Text(SymbolType.ERROR, style=StyleType.ERROR)
 
