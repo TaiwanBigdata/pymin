@@ -12,8 +12,11 @@ from ...ui.console import (
     print_warning,
     progress_status,
     console,
+    display_panel,
+    print_tips,
 )
 from ...ui.style import StyleType, SymbolType, DEFAULT_PANEL
+from ...core.events import events, EventType
 
 
 @click.command()
@@ -85,27 +88,45 @@ def venv(name: str = None, yes: bool = False, rebuild: bool = False):
             style=StyleType.SUCCESS,
         )
 
-        console.print(
-            Panel.fit(
-                text,
-                title="Environment Created",
-                title_align=DEFAULT_PANEL.title_align,
-                border_style=DEFAULT_PANEL.border_style,
-                padding=DEFAULT_PANEL.padding,
-            )
-        )
+        # Use display_panel to show the environment information
+        display_panel("Environment Created", text)
 
         # Install requirements if they exist
         requirements_file = Path("requirements.txt")
         pyproject_file = Path("pyproject.toml")
 
         if requirements_file.exists() or pyproject_file.exists():
-            with progress_status("Installing dependencies..."):
-                manager.install_requirements(venv_path)
-            print_success("Dependencies installed successfully")
+            with progress_status("Installing dependencies...") as status:
 
-        # Activate the environment
-        print_success("Use 'pmm on' to activate the environment")
+                def on_package_installing(pkg_name: str, **kwargs):
+                    # 從 kwargs 取得額外資訊
+                    extras = kwargs.get("extras")
+                    version = kwargs.get("version")
+                    constraint = kwargs.get("constraint")
+                    total_packages = kwargs.get("total_packages")
+                    current_index = kwargs.get("current_index")
+
+                    # 格式化顯示訊息
+                    extras_str = (
+                        f"[{','.join(sorted(extras))}]" if extras else ""
+                    )
+                    version_str = (
+                        f"{constraint or '=='}{version}" if version else ""
+                    )
+
+                    # 更新狀態顯示
+                    status.update(
+                        f"Installing dependencies... ({current_index}/{total_packages})\n"
+                        f"[dim]Installing {pkg_name}{extras_str}{version_str}...[/dim]"
+                    )
+
+                # 註冊事件監聽
+                events.on(EventType.Package.INSTALLING, on_package_installing)
+                manager.install_requirements(venv_path)
+                print_success("Dependencies installed successfully")
+
+        # Show activation tip
+        print_tips("Use 'pm on' to activate the environment")
 
     except Exception as e:
         print_error(f"Failed to create environment: {str(e)}")

@@ -12,6 +12,7 @@ from ..ui.console import print_success, print_warning
 from .package_manager import PackageManager
 from .package_analyzer import PackageAnalyzer
 from .version_utils import parse_requirement_string
+from .events import events, EventType
 from packaging.utils import canonicalize_name
 
 
@@ -240,6 +241,7 @@ class VenvManager:
             Dictionary containing environment information
         """
         # Handle rebuilding
+        events.emit(EventType.Venv.CREATING, venv_path)
         if venv_path.exists():
             if rebuild:
                 import shutil
@@ -251,11 +253,15 @@ class VenvManager:
         # Create the environment
         venv.create(venv_path, with_pip=True)
 
+        # Emit environment creation success event
+        events.emit(EventType.Venv.CREATED, venv_path)
+
         # Set the venv path for analyzer
         self.analyzer.venv_path = venv_path
 
         # Verify the environment was created successfully
         if not self.has_venv(venv_path):
+            events.emit(EventType.Venv.FAILED, venv_path)
             raise RuntimeError("Failed to create virtual environment")
 
         # Get environment information

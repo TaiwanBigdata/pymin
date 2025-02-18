@@ -11,6 +11,7 @@ from rich.tree import Tree
 from rich.style import Style
 from .package_analyzer import PackageAnalyzer
 from .version_utils import parse_requirement_string
+from .events import events, EventType
 from packaging import version
 import re
 import requests
@@ -175,12 +176,29 @@ class PackageManager:
         """
         results = {}
         successfully_added = []
+        total_packages = len(packages)
 
         # Parse package specifications
         package_specs = [parse_requirement_string(pkg) for pkg in packages]
 
-        for pkg_name, pkg_extras, pkg_constraint, pkg_version in package_specs:
+        for index, (
+            pkg_name,
+            pkg_extras,
+            pkg_constraint,
+            pkg_version,
+        ) in enumerate(package_specs, 1):
             try:
+                # Emit package installation start event
+                events.emit(
+                    EventType.Package.INSTALLING,
+                    pkg_name,
+                    extras=pkg_extras,
+                    version=pkg_version,
+                    constraint=pkg_constraint,
+                    is_dependency=False,
+                    total_packages=total_packages,
+                    current_index=index,
+                )
                 # Install package
                 cmd = [str(self._pip_path), "install"]
                 if editable:
@@ -244,6 +262,16 @@ class PackageManager:
                                 pkg_info["dependencies"]
                             ),
                         }
+                        # Emit package installation success event
+                        events.emit(
+                            EventType.Package.INSTALLED,
+                            matching_pkg,
+                            extras=pkg_extras,
+                            version=version,
+                            total_packages=total_packages,
+                            current_index=index,
+                            dependencies=pkg_info["dependencies"],
+                        )
                 else:
                     # Extract version information from pip's error output
                     error_output = (
@@ -310,11 +338,31 @@ class PackageManager:
                         "message": error_output,
                         "version_info": version_info,
                     }
+                    # Emit package installation failure event
+                    events.emit(
+                        EventType.Package.FAILED,
+                        pkg_name,
+                        extras=pkg_extras,
+                        error=error_output,
+                        version_info=version_info,
+                        total_packages=total_packages,
+                        current_index=index,
+                    )
+
             except Exception as e:
                 results[pkg_name] = {
                     "status": "error",
                     "message": str(e),
                 }
+                # Emit package installation error event
+                events.emit(
+                    EventType.Package.FAILED,
+                    pkg_name,
+                    extras=pkg_extras,
+                    error=str(e),
+                    total_packages=total_packages,
+                    current_index=index,
+                )
 
         # Update dependency files only after successful installations
         if successfully_added:
