@@ -286,10 +286,11 @@ class VenvAnalyzer:
                 "site_packages": None,
             }
 
-    def get_venv_info(self) -> Dict[str, Any]:
+    def get_venv_info(
+        self, *, include_system_info: bool = True
+    ) -> Dict[str, Any]:
         """Get information about the system and virtual environment status"""
         # Get system information using SystemEnvironmentDetector
-        system_info = self.system_analyzer.get_system_info()
 
         # Get active environment info
         active_venv = os.environ.get("VIRTUAL_ENV")
@@ -308,15 +309,10 @@ class VenvAnalyzer:
             if active_env["path"] and current_env["path"]
             else False
         )
-        return {
+        info = {
             "project": {
                 "name": self.project_path.name,
                 "path": str(self.project_path),
-            },
-            "system": {
-                "python": system_info["python"],
-                "pip": system_info["pip"],
-                "platform": system_info["platform"],
             },
             "environment_status": {
                 "active_environment": active_env,
@@ -324,3 +320,12 @@ class VenvAnalyzer:
                 "is_same_environment": is_same_env,
             },
         }
+
+        if include_system_info:
+            system_info = self.system_analyzer.get_system_info()
+            info["system"] = {
+                "python": system_info["python"],
+                "pip": system_info["pip"],
+                "platform": system_info["platform"],
+            }
+        return info

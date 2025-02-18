@@ -3,7 +3,7 @@
 import click
 from pathlib import Path
 from rich.panel import Panel
-from rich.text import Text
+from ...ui.formatting import Text
 from rich.prompt import Confirm
 from ...core.venv_manager import VenvManager
 from ...ui.console import (
@@ -48,48 +48,56 @@ def venv(name: str = None, yes: bool = False, rebuild: bool = False):
                 rebuild = True
 
         # Create environment
-        with progress_status("Creating virtual environment..."):
+        with progress_status("Creating virtual environment...") as status:
+
+            def on_venv_creating(venv_path):
+                status.update(
+                    f"Creating virtual environment: [bold]{venv_path}[/bold]..."
+                )
+
+            def on_venv_retrieving(venv_path):
+                status.update(f"Retrieving installed system information...")
+
+            events.on(EventType.Venv.CREATING, on_venv_creating)
+            events.on(EventType.Venv.RETRIEVING, on_venv_retrieving)
+
             env_info = manager.create_environment(venv_path, rebuild=rebuild)
 
-        # Display environment information in a panel
-        text = Text()
-        text.append("Virtual Environment: ", style=StyleType.ENV_FIELD_NAME)
-        text.append(
-            f"{env_info['project']['name']}",
-            style=StyleType.ENV_PROJECT_NAME,
-        )
-        text.append(
-            f"({venv_path.name})",
-            style=StyleType.ENV_VENV_NAME,
-        )
-        text.append("\n")
+            # Create panel content using Text class
+            content = (
+                Text()
+                .append_field(
+                    "Virtual Environment",
+                    env_info["project"]["name"],
+                    note=venv_path.name,
+                    value_style=StyleType.ENV_PROJECT_NAME,
+                    note_style=StyleType.ENV_VENV_NAME,
+                )
+                .append_field(
+                    "Python Version",
+                    env_info["system"]["python"]["version"] or "Unknown",
+                    value_style=StyleType.ENV_VERSION,
+                )
+                .append_field(
+                    "Pip Version",
+                    env_info["system"]["pip"]["version"] or "Unknown",
+                    value_style=StyleType.ENV_VERSION,
+                )
+                .append_field(
+                    "Location",
+                    str(venv_path.absolute()),
+                    value_style=StyleType.ENV_PATH,
+                )
+                .append_field(
+                    "Status",
+                    f"{SymbolType.SUCCESS} Created",
+                    value_style=StyleType.SUCCESS,
+                    add_line_after=False,
+                )
+            )
 
-        text.append("Python Version: ", style=StyleType.ENV_FIELD_NAME)
-        text.append(
-            env_info["system"]["python"]["version"] or "Unknown",
-            style=StyleType.ENV_VERSION,
-        )
-        text.append("\n")
-
-        text.append("Pip Version: ", style=StyleType.ENV_FIELD_NAME)
-        text.append(
-            env_info["system"]["pip"]["version"] or "Unknown",
-            style=StyleType.ENV_VERSION,
-        )
-        text.append("\n")
-
-        text.append("Location: ", style=StyleType.ENV_FIELD_NAME)
-        text.append(str(venv_path.absolute()), style=StyleType.ENV_PATH)
-        text.append("\n")
-
-        text.append("Status: ", style=StyleType.ENV_FIELD_NAME)
-        text.append(
-            f"{SymbolType.SUCCESS} Created",
-            style=StyleType.SUCCESS,
-        )
-
-        # Use display_panel to show the environment information
-        display_panel("Environment Created", text)
+            # Display the panel
+            display_panel("Environment Created", content)
 
         # Install requirements if they exist
         requirements_file = Path("requirements.txt")
@@ -123,10 +131,11 @@ def venv(name: str = None, yes: bool = False, rebuild: bool = False):
                 # 註冊事件監聽
                 events.on(EventType.Package.INSTALLING, on_package_installing)
                 manager.install_requirements(venv_path)
-                print_success("Dependencies installed successfully")
+                print_success("Virtual environment created successfully")
+                console.print()
 
         # Show activation tip
-        print_tips("Use 'pm on' to activate the environment")
+        print_tips("Use [cyan]pm on[/cyan] to activate the environment")
 
     except Exception as e:
         print_error(f"Failed to create environment: {str(e)}")

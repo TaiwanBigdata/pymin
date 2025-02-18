@@ -19,6 +19,7 @@ class EventType:
 
         CREATING = "venv.creating"
         CREATED = "venv.created"
+        RETRIEVING = "venv.retrieving"
         FAILED = "venv.failed"
 
     class Dependency:

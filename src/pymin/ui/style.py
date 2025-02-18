@@ -74,9 +74,8 @@ class StyleType(Enum):
     # Environment related styles
     VENV_ACTIVE = Style(color="green", bold=True)
     VENV_INACTIVE = Style(color="yellow")
-    VENV_PATH = Style(color="blue")
     ENV_NAME = Style(color="green")
-    ENV_PATH = Style(color="bright_black")
+    ENV_PATH = Style(color="cyan")
     ENV_PROJECT_NAME = Style(color="cyan")
     ENV_VENV_NAME = Style(color="white", dim=True)
     ENV_VERSION = Style(color="cyan")

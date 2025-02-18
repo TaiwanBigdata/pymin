@@ -265,6 +265,7 @@ class VenvManager:
             raise RuntimeError("Failed to create virtual environment")
 
         # Get environment information
+        events.emit(EventType.Venv.RETRIEVING, venv_path)
         env_info = self.analyzer.get_venv_info()
         return env_info
 

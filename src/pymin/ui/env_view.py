@@ -3,7 +3,7 @@
 import json
 from rich.table import Table
 from typing import Dict, Any, List
-from .style import StyleType as style
+from .style import StyleType
 from .console import display_panel, console
 from .formatting import Text
 import pathlib
@@ -72,14 +72,14 @@ def create_env_info_panel(env_info: Dict[str, Any]) -> Text:
             "Python",
             system_info["python"]["version"],
             note=system_info["python"]["executable"],
-            value_style="cyan",
+            value_style=StyleType.ENV_VERSION,
             note_style="dim",
         )
         .append_field(
             "Pip",
             system_info["pip"]["version"],
             note=system_info["pip"]["path"],
-            value_style="cyan",
+            value_style=StyleType.ENV_VERSION,
             note_style="dim",
         )
         .append_field(
@@ -131,7 +131,7 @@ def create_env_info_panel(env_info: Dict[str, Any]) -> Text:
             content.append_header("Current Directory", style="dim")
             .append("  No virtual environment", style="yellow")
             .append("\n  Run: ", style="dim")
-            .append("pmm venv", style="cyan")
+            .append("pm venv", style=StyleType.COMMAND)
             .append(" to create one", style="dim")
         )
 
