@@ -11,6 +11,8 @@ from ..ui.style import format_env_switch, StyleType
 from ..ui.console import print_success, print_warning
 from .package_manager import PackageManager
 from .package_analyzer import PackageAnalyzer
+from .version_utils import parse_requirement_string
+from packaging.utils import canonicalize_name
 
 
 class VenvManager:
@@ -314,7 +316,6 @@ class VenvManager:
         requirements_file = Path("requirements.txt")
         pyproject_path = Path("pyproject.toml")
 
-        # If neither file exists, return early
         if not requirements_file.exists() and not pyproject_path.exists():
             return
 
@@ -322,7 +323,46 @@ class VenvManager:
             # Create a temporary package manager for this venv
             temp_package_manager = PackageManager(venv_path)
 
-            # Get dependencies from both files if they exist
+            # Handle case sensitivity and duplicates in requirements.txt
+            if requirements_file.exists():
+                # Read and parse all requirements
+                normalized_packages = {}  # Track processed packages
+                with open(requirements_file, "r") as f:
+                    requirements = [
+                        line.strip()
+                        for line in f.readlines()
+                        if line.strip() and not line.startswith("#")
+                    ]
+
+                for req in requirements:
+                    try:
+                        pkg_name, pkg_extras, _, pkg_version = (
+                            parse_requirement_string(req)
+                        )
+                        if (
+                            pkg_name and pkg_version
+                        ):  # Ensure name and version exist
+                            normalized_name = canonicalize_name(pkg_name)
+                            # If this normalized name exists, keep the latest version
+                            normalized_packages[normalized_name] = (
+                                normalized_name,
+                                pkg_version.lstrip("="),
+                            )
+                    except Exception:
+                        continue
+
+                # Update requirements.txt file
+                if normalized_packages:
+                    # Clear the file first
+                    with open(requirements_file, "w") as f:
+                        # Write sorted packages
+                        for name, version in sorted(
+                            normalized_packages.values(),
+                            key=lambda x: x[0].lower(),
+                        ):
+                            f.write(f"{name}=={version}\n")
+
+            # Continue with original installation logic
             requirements = []
             pyproject_deps = {}
 

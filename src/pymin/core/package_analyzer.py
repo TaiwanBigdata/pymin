@@ -2,6 +2,7 @@ import sys
 from typing import Any, Set, Dict, Optional, List, Tuple
 from packaging.requirements import Requirement
 from packaging.version import Version, parse as parse_version
+from packaging.utils import canonicalize_name
 import importlib.metadata
 from enum import Enum
 import tomlkit
@@ -11,7 +12,6 @@ from rich.text import Text
 from .venv_analyzer import VenvAnalyzer
 from .version_utils import (
     check_version_compatibility,
-    normalize_package_name,
     parse_requirement_string,
     validate_version,
     VALID_CONSTRAINTS,
@@ -105,7 +105,7 @@ class DependencyInfo:
 
     def __init__(self, name: str, version_spec: str, source: DependencySource):
         self.name = name  # Original name (preserves case)
-        self.id = normalize_package_name(
+        self.id = canonicalize_name(
             name
         )  # Normalized ID (for comparison and lookup)
         self._version_spec = version_spec
@@ -321,7 +321,7 @@ class PackageAnalyzer:
                                 if name is None:
                                     continue
 
-                                pkg_id = normalize_package_name(name)
+                                pkg_id = canonicalize_name(name)
                                 spec = (
                                     f"{constraint}{version}"
                                     if constraint and version
@@ -373,7 +373,7 @@ class PackageAnalyzer:
                                 if name is None:
                                     continue
 
-                                pkg_id = normalize_package_name(name)
+                                pkg_id = canonicalize_name(name)
                                 spec = (
                                     f"{constraint}{version}"
                                     if constraint and version
@@ -440,7 +440,7 @@ class PackageAnalyzer:
                     for dep in pyproject_data["project"]["dependencies"]:
                         try:
                             req = Requirement(dep)
-                            name = self._normalize_package_name(req.name)
+                            name = canonicalize_name(req.name)
                             spec = str(req.specifier) if req.specifier else ""
                             dependencies.append(
                                 DependencyInfo(
@@ -470,16 +470,6 @@ class PackageAnalyzer:
             required_spec: Version specification from requirements.txt
         """
         return check_version_compatibility(installed_version, required_spec)
-
-    @staticmethod
-    def _normalize_package_name(name: str) -> str:
-        """
-        Normalize package name
-
-        Args:
-            name: Package name to normalize
-        """
-        return normalize_package_name(name)
 
     @staticmethod
     def _get_system_packages() -> Set[str]:
@@ -584,10 +574,7 @@ class PackageAnalyzer:
                                 name, _, constraint, version = (
                                     parse_requirement_string(line)
                                 )
-                                if (
-                                    name
-                                    and normalize_package_name(name) == pkg_id
-                                ):
+                                if name and canonicalize_name(name) == pkg_id:
                                     versions.append(
                                         f"{constraint}{version}"
                                         if constraint and version
@@ -619,7 +606,7 @@ class PackageAnalyzer:
                                         )
                                         if (
                                             name
-                                            and normalize_package_name(name)
+                                            and canonicalize_name(name)
                                             == pkg_id
                                         ):
                                             versions.append(
@@ -703,7 +690,7 @@ class PackageAnalyzer:
                     if self._should_exclude_dependency(req):
                         continue
                     req_obj = Requirement(req)
-                    dep_name = self._normalize_package_name(req_obj.name)
+                    dep_name = canonicalize_name(req_obj.name)
                     if not exclude_system or dep_name not in system_packages:
                         deps.add(dep_name)
                 except Exception as e:
@@ -744,9 +731,7 @@ class PackageAnalyzer:
                                 info_dir
                             )
                             original_name = dist.metadata["Name"]
-                            normalized_id = self._normalize_package_name(
-                                original_name
-                            )
+                            normalized_id = canonicalize_name(original_name)
                             installed_version = dist.metadata["Version"]
 
                             if (
@@ -773,7 +758,7 @@ class PackageAnalyzer:
                 all_dependencies = set()
                 for pkg_info in packages_info.values():
                     all_dependencies.update(
-                        self._normalize_package_name(dep)
+                        canonicalize_name(dep)
                         for dep in pkg_info["dependencies"]
                     )
 
@@ -929,7 +914,7 @@ class PackageAnalyzer:
                             )
                             if name is None:
                                 continue
-                            pkg_id = normalize_package_name(name)
+                            pkg_id = canonicalize_name(name)
                             if pkg_id not in req_duplicates:
                                 req_duplicates[pkg_id] = []
                             req_duplicates[pkg_id].append(
@@ -957,7 +942,7 @@ class PackageAnalyzer:
                                 )
                                 if name is None:
                                     continue
-                                pkg_id = normalize_package_name(name)
+                                pkg_id = canonicalize_name(name)
                                 if pkg_id not in proj_duplicates:
                                     proj_duplicates[pkg_id] = []
                                 proj_duplicates[pkg_id].append(
@@ -1003,28 +988,27 @@ class PackageAnalyzer:
         for pkg_info in installed_packages.values():
             deps = pkg_info.get("dependencies", [])
             # 標準化所有依賴的 ID
-            deps_ids = {self._normalize_package_name(dep) for dep in deps}
+            deps_ids = {canonicalize_name(dep) for dep in deps}
             all_dependencies_ids.update(deps_ids)
             # 遞迴收集子依賴的依賴
             for dep in deps:
-                dep_id = self._normalize_package_name(dep)
+                dep_id = canonicalize_name(dep)
                 if dep_id in installed_packages:
                     subdeps = installed_packages[dep_id].get("dependencies", [])
                     all_dependencies_ids.update(
-                        self._normalize_package_name(subdep)
-                        for subdep in subdeps
+                        canonicalize_name(subdep) for subdep in subdeps
                     )
 
         # 先檢查冗餘套件，使用標準化的 ID 進行比較
         for pkg_id, dep_info in requirements.items():
-            normalized_id = self._normalize_package_name(dep_info.name)
+            normalized_id = canonicalize_name(dep_info.name)
             if normalized_id in all_dependencies_ids:
                 # 使用原始名稱添加到結果中
                 inconsistencies[PackageStatus.REDUNDANT].append(dep_info.name)
 
         # 檢查 requirements 中的套件
         for pkg_id, dep_info in requirements.items():
-            normalized_id = self._normalize_package_name(dep_info.name)
+            normalized_id = canonicalize_name(dep_info.name)
             # 如果是冗餘套件，跳過其他檢查
             if dep_info.name in inconsistencies[PackageStatus.REDUNDANT]:
                 continue
@@ -1069,10 +1053,10 @@ class PackageAnalyzer:
 
         # 檢查已安裝但不在 requirements 中的套件
         for pkg_id, pkg_info in installed_packages.items():
-            normalized_id = self._normalize_package_name(pkg_id)
+            normalized_id = canonicalize_name(pkg_id)
             # 檢查是否在 requirements 中（使用標準化的 ID）
             if not any(
-                self._normalize_package_name(req.name) == normalized_id
+                canonicalize_name(req.name) == normalized_id
                 for req in requirements.values()
             ):
                 # 檢查是否是其他套件的依賴

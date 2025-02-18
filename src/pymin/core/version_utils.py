@@ -136,16 +136,3 @@ def check_version_compatibility(
         return parse_version(installed_version) in SpecifierSet(required_spec)
     except Exception:
         return False
-
-
-def normalize_package_name(name: str) -> str:
-    """
-    Normalize package name following PEP 503
-
-    Args:
-        name: Package name to normalize
-
-    Returns:
-        str: Normalized package name
-    """
-    return name.lower().replace("_", "-")

@@ -10,7 +10,7 @@ from ...core.package_analyzer import (
     DependencyInfo,
     PackageStatus,
 )
-from ...core.version_utils import normalize_package_name
+from packaging.utils import canonicalize_name
 from ...ui.console import (
     print_error,
     print_warning,
@@ -97,9 +97,9 @@ def fix(yes: bool = False):
                 ):
                     console.print("\n[yellow]Version Mismatches:[/yellow]")
                     for name, required in inconsistencies[status]:
-                        current = installed_packages[
-                            normalize_package_name(name)
-                        ]["installed_version"]
+                        current = installed_packages[canonicalize_name(name)][
+                            "installed_version"
+                        ]
                         console.print(
                             f"  • [cyan]{name}[/cyan]: [yellow]{current}[/yellow] → [green]{required}[/green]"
                         )
@@ -128,9 +128,9 @@ def fix(yes: bool = False):
                 ):
                     console.print("\n[yellow]Not in Requirements:[/yellow]")
                     for name in inconsistencies[status]:
-                        version = installed_packages[
-                            normalize_package_name(name)
-                        ]["installed_version"]
+                        version = installed_packages[canonicalize_name(name)][
+                            "installed_version"
+                        ]
                         missing_from = (
                             "pyproject.toml"
                             if use_pyproject

@@ -8,9 +8,8 @@ from .version_utils import (
     VALID_CONSTRAINTS,
     parse_requirement_string,
     validate_version,
-    normalize_package_name,
 )
-from .package_analyzer import PackageAnalyzer
+from packaging.utils import canonicalize_name
 
 
 class PyProjectManager:
@@ -139,14 +138,12 @@ class PyProjectManager:
 
             # Parse package name to remove (ignore extras as we'll remove all versions)
             remove_name, _, _, _ = parse_requirement_string(package_name)
-            normalized_remove_name = normalize_package_name(remove_name)
+            normalized_remove_name = canonicalize_name(remove_name)
 
             for dep in dep_list:
                 try:
                     current_name, _, _, _ = parse_requirement_string(dep)
-                    normalized_current_name = normalize_package_name(
-                        current_name
-                    )
+                    normalized_current_name = canonicalize_name(current_name)
 
                     # Keep package if base name is different
                     if normalized_current_name != normalized_remove_name:

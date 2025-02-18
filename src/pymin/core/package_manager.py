@@ -10,7 +10,7 @@ from rich.text import Text
 from rich.tree import Tree
 from rich.style import Style
 from .package_analyzer import PackageAnalyzer
-from .version_utils import normalize_package_name, parse_requirement_string
+from .version_utils import parse_requirement_string
 from packaging import version
 import re
 import requests
