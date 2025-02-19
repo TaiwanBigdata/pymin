@@ -7,6 +7,7 @@ from pathlib import Path
 import tomllib
 import requests
 import importlib.metadata
+from packaging.version import parse as parse_version
 from ..ui.console import console
 
 
@@ -18,6 +19,7 @@ def check_for_updates() -> None:
     try:
         # Get current version
         current_version = importlib.metadata.version("pymin")
+        current_version_parsed = parse_version(current_version)
 
         # Check cache first
         if cache_file.exists():
@@ -25,9 +27,10 @@ def check_for_updates() -> None:
                 cache = json.load(f)
                 last_check = datetime.fromtimestamp(cache["last_check"])
                 # Only check once per day
-                if datetime.now() - last_check < timedelta(minutes=1):
+                if datetime.now() - last_check < timedelta(days=1):
                     latest_version = cache["latest_version"]
-                    if latest_version != current_version:
+                    latest_version_parsed = parse_version(latest_version)
+                    if latest_version_parsed > current_version_parsed:
                         console.print(
                             f"[yellow]New version available: [cyan]{latest_version}[/cyan] (current: {current_version})[/yellow]"
                         )
@@ -40,6 +43,7 @@ def check_for_updates() -> None:
         response = requests.get("https://pypi.org/pypi/pymin/json", timeout=5)
         if response.status_code == 200:
             latest_version = response.json()["info"]["version"]
+            latest_version_parsed = parse_version(latest_version)
 
             # Create cache directory if it doesn't exist
             cache_dir.mkdir(parents=True, exist_ok=True)
@@ -55,7 +59,7 @@ def check_for_updates() -> None:
                 )
 
             # Show update message if needed
-            if latest_version != current_version:
+            if latest_version_parsed > current_version_parsed:
                 console.print(
                     f"[yellow]New version available: [cyan]{latest_version}[/cyan] (current: {current_version})[/yellow]"
                 )
