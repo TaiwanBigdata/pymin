@@ -119,14 +119,20 @@ class DependencyInfo:
 
     @property
     def version_spec(self) -> str:
-        if self.extras:
-            extras_str = f"[{','.join(sorted(self.extras))}]"
-            return f"{self.name}{extras_str}{self._version_spec}"
+        """Get version specification without extras"""
         return self._version_spec
 
     @version_spec.setter
     def version_spec(self, value: str):
         self._version_spec = value
+
+    @property
+    def full_spec(self) -> str:
+        """Get full specification including extras and version"""
+        if self.extras:
+            extras_str = f"[{','.join(sorted(self.extras))}]"
+            return f"{self.name}{extras_str}{self._version_spec}"
+        return f"{self.name}{self._version_spec}"
 
     def get_version_info(self) -> Dict[str, Dict[str, str]]:
         """

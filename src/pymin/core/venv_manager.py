@@ -352,8 +352,9 @@ class VenvManager:
                             normalized_name = canonicalize_name(pkg_name)
                             # If this normalized name exists, keep the latest version
                             normalized_packages[normalized_name] = (
-                                normalized_name,
+                                pkg_name,
                                 pkg_version.lstrip("="),
+                                pkg_extras,
                             )
                     except Exception:
                         continue
@@ -363,11 +364,15 @@ class VenvManager:
                     # Clear the file first
                     with open(requirements_file, "w") as f:
                         # Write sorted packages
-                        for name, version in sorted(
+                        for name, version, extras in sorted(
                             normalized_packages.values(),
                             key=lambda x: x[0].lower(),
                         ):
-                            f.write(f"{name}=={version}\n")
+                            if extras:
+                                extras_str = f"[{','.join(sorted(extras))}]"
+                                f.write(f"{name}{extras_str}=={version}\n")
+                            else:
+                                f.write(f"{name}=={version}\n")
 
             # Continue with original installation logic
             requirements = []
@@ -394,9 +399,11 @@ class VenvManager:
             # Parse requirements.txt dependencies
             for req in requirements:
                 try:
-                    if "==" in req:
-                        name, version = req.split("==")
-                        req_deps[name.strip()] = ("==", version.strip())
+                    pkg_name, pkg_extras, constraint, version = (
+                        parse_requirement_string(req)
+                    )
+                    if pkg_name and version:
+                        req_deps[pkg_name] = ("==", version, pkg_extras)
                     else:
                         final_dependencies.append(req)
                 except Exception:
@@ -406,7 +413,7 @@ class VenvManager:
             for pkg_name, (constraint, version) in pyproject_deps.items():
                 if pkg_name in req_deps:
                     # Version conflict found
-                    req_constraint, req_version = req_deps[pkg_name]
+                    req_constraint, req_version, req_extras = req_deps[pkg_name]
                     if req_version != version:
                         from ..ui.console import print_warning
 
@@ -418,9 +425,15 @@ class VenvManager:
                         print_warning(
                             f"Using version from pyproject.toml: {constraint}{version}"
                         )
-                    final_dependencies.append(
-                        f"{pkg_name}{constraint}{version}"
-                    )
+                    # Construct package spec with extras
+                    if req_extras:
+                        extras_str = f"[{','.join(sorted(req_extras))}]"
+                        pkg_spec = (
+                            f"{pkg_name}{extras_str}{constraint}{version}"
+                        )
+                    else:
+                        pkg_spec = f"{pkg_name}{constraint}{version}"
+                    final_dependencies.append(pkg_spec)
                     req_deps.pop(pkg_name)
                 else:
                     final_dependencies.append(
@@ -428,8 +441,13 @@ class VenvManager:
                     )
 
             # Add remaining requirements.txt dependencies
-            for pkg_name, (constraint, version) in req_deps.items():
-                final_dependencies.append(f"{pkg_name}{constraint}{version}")
+            for pkg_name, (constraint, version, extras) in req_deps.items():
+                if extras:
+                    extras_str = f"[{','.join(sorted(extras))}]"
+                    pkg_spec = f"{pkg_name}{extras_str}{constraint}{version}"
+                else:
+                    pkg_spec = f"{pkg_name}{constraint}{version}"
+                final_dependencies.append(pkg_spec)
 
             if not final_dependencies:
                 return

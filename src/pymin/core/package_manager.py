@@ -9,7 +9,7 @@ from ..ui.console import progress_status, print_error, console, print_warning
 from rich.text import Text
 from rich.tree import Tree
 from rich.style import Style
-from .package_analyzer import PackageAnalyzer
+from .package_analyzer import PackageAnalyzer, DependencyInfo, DependencySource
 from .version_utils import parse_requirement_string
 from .events import events, EventType
 from packaging import version
@@ -693,22 +693,19 @@ class PackageManager:
             added_set = set()
             for pkg_spec in added:
                 pkg_info = parse_requirement_string(pkg_spec)
-                pkg_name, pkg_extras, _, pkg_version = pkg_info
+                pkg_name, pkg_extras, pkg_constraint, pkg_version = pkg_info
 
-                # Construct full package spec with extras
-                if pkg_extras:
-                    extras_str = f"[{','.join(sorted(pkg_extras))}]"
-                    full_pkg_name = f"{pkg_name}{extras_str}"
-                else:
-                    full_pkg_name = pkg_name
+                # Create DependencyInfo object
+                dep_info = DependencyInfo(
+                    pkg_name, "", DependencySource.REQUIREMENTS
+                )
+                dep_info.extras = pkg_extras
+                dep_info.version_spec = (
+                    f"{pkg_constraint}{pkg_version}" if pkg_version else ""
+                )
 
-                if pkg_version:
-                    added_set.add(f"{full_pkg_name}=={pkg_version}")
-                else:
-                    # Get installed version if not specified
-                    version = self._get_installed_version(pkg_name)
-                    if version:
-                        added_set.add(f"{full_pkg_name}=={version}")
+                # Use full_spec to get complete package specification
+                added_set.add(dep_info.full_spec)
 
             # Remove existing entries for added packages
             new_requirements = []

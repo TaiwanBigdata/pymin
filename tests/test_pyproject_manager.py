@@ -1,6 +1,6 @@
 # Test file for PyProjectManager functionality
 
-from pymin.core.version_utils import parse_requirement_string
+from src.pymin.core.version_utils import parse_requirement_string
 import pytest
 from pathlib import Path
 import tomlkit
@@ -260,3 +260,26 @@ def test_dependency_parsing(empty_pyproject):
     for invalid_input in invalid_inputs:
         with pytest.raises(ValueError):
             parse_requirement_string(invalid_input)
+
+
+def test_dependency_info_handling():
+    """Test DependencyInfo object handling"""
+    from src.pymin.core.package_analyzer import DependencyInfo, DependencySource
+
+    # Test basic package info
+    dep_info = DependencyInfo("requests", "", DependencySource.REQUIREMENTS)
+    assert dep_info.name == "requests"
+    assert dep_info.full_spec == "requests"
+
+    # Test package with version
+    dep_info.version_spec = ">=2.31.0"
+    assert dep_info.full_spec == "requests>=2.31.0"
+
+    # Test package with extras
+    dep_info.extras = {"security", "socks"}
+    assert dep_info.full_spec == "requests[security,socks]>=2.31.0"
+
+    # Test package with extras but no version
+    dep_info = DependencyInfo("uvicorn", "", DependencySource.REQUIREMENTS)
+    dep_info.extras = {"standard"}
+    assert dep_info.full_spec == "uvicorn[standard]"
